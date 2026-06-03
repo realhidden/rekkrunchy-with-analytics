@@ -56,3 +56,32 @@ ruled out by the budget. The viable size win is Phase A: a bit-exact rewrite of
 the asm decoder (same predictions, better instruction selection) + Phase C
 (golf the unfilter). Keeping `research/cm.c` as the evidence + a reusable
 ablation harness.
+
+## Stream layout study — ryg's 20-stream split is already near-optimal
+
+Tools: `research/streamstats.c` (per-stream raw+isolated-compressed cost),
+plus true end-to-end `-cx` A/B tests (the only valid signal — see caveat).
+
+Per-stream cost (nasm/ls): opcodes(#0) ~54% of output; jmp-rel32(#17) ~8.5%;
+disp32(#13) ~7%; imm8/imm32 ~6/5%; rest small. Structured address streams
+(disp32-nobase #14, abs+jumptab #15) compress to 6-16%.
+
+**CAVEAT that killed every "obvious" idea:** compressing a stream in isolation
+is NOT a valid signal. The shipping codec runs one continuous adaptive model
+over the whole filtered blob, so per-stream tests mis-price both warmup
+overhead and cross-stream context. Everything below is measured in the real
+`-cx` path with roundtrip.
+
+Tested, all REJECTED (made real `-cx` worse):
+- Merge the 8 per-register disp8 streams (#1-8) into one: isolated test said
+  -165..-424 B; real path **+141..+561 B**. Per-register runs are self-similar;
+  the model wants them contiguous. ryg right.
+- Split modrm out of the opcode stream (#0): **+551..+10193 B**. Opcode→modrm is
+  the model's strongest correlation; separating them destroys it. ryg right.
+- rel8 (#9) ~85-95%: byte entropy is 7.4-7.6 bits/byte — genuinely near-random
+  (small signed PC-relative offsets). Already at the entropy floor; no transform
+  helps without modeling instruction semantics.
+
+Verdict: the 20-stream layout is empirically tuned and resists local changes.
+No stream add/remove/merge beat it. Real ratio gains would need a fundamentally
+different (e.g. instruction-semantic) model, out of scope for the size goal.

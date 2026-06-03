@@ -69,6 +69,17 @@ jmp STAGE0ENTRY
 
 """, "")
 
+# 4b. Golf: the zero-page test is `xor eax,eax; cmp eax,[bitcounter]` (5 B).
+# bitcounter is only ever bumped with `inc word`, so its high half stays 0 and a
+# direct `cmp dword [bitcounter],0` (4 B) is identical. eax is reloaded right
+# after, so dropping the xor is safe.
+src = src.replace(
+"""  xor       eax, eax
+  cmp       eax, [ebp+Work.bitcounter]
+  jne       .nozeropage""",
+"""  cmp       dword [ebp+Work.bitcounter], 0   ; bumped as word -> hi half always 0
+  jne       .nozeropage""")
+
 # 5. The original keeps its helper routines (train/contextHash/squash/decodebit)
 # plus their small read-only tables under `section .data`. That is fine for a PE
 # image but on Linux ELF `.data` is non-executable, so calling into it faults.

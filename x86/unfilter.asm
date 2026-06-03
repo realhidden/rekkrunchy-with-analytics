@@ -164,7 +164,7 @@ rekk_unfilter:
   mov       cl, al
 
   test      cl, fMR                  ; modrm?
-  jz        near .nomdrm
+  jz        .nomdrm
   lodsb
   stosb
   mov       [ebp+dataArea.modrmbuf], al
@@ -238,7 +238,7 @@ rekk_unfilter:
   mov       al, cl
   and       al, fMODE
   cmp       al, fAM
-  jne       near .noaddr
+  jne       .noaddr
 
   shr       cl, 2                    ; address-mode immediate type
   jnz       .noad
@@ -246,7 +246,7 @@ rekk_unfilter:
   xchg      esi, [ebp+BUFFER+15*4]
   movsd
   xchg      esi, [ebp+BUFFER+15*4]
-  jmp       .main
+  jmp       short .tomain
 .noad:
   dec       cl
   jnz       .dwdrl
@@ -254,7 +254,7 @@ rekk_unfilter:
   xchg      esi, [ebp+BUFFER+9*4]
   movsb
   xchg      esi, [ebp+BUFFER+9*4]
-  jmp       .main
+  jmp       short .tomain
 .dwdrl:
   xor       ebx, ebx
   cmp       byte [edi-1], 0xe8       ; call rel32 vs jmp/jcc rel32
@@ -292,7 +292,8 @@ rekk_unfilter:
   sub       eax, edi                 ; rel32 = target_offset - (edi - origdst) - 4
   add       eax, [ebp+dataArea.offset]
   stosd
-  jmp       .main
+.tomain:                             ; central trampoline: lets nearby copy-and-
+  jmp       .main                    ; continue paths reach .main with jmp short
 
 .noaddr:
   shr       cl, 2
@@ -303,7 +304,7 @@ rekk_unfilter:
   xchg      esi, [ebp+BUFFER+10*4]
   movsb
   xchg      esi, [ebp+BUFFER+10*4]
-  jmp       .main
+  jmp       short .tomain
 .dwow:
   dec       cl
   jnz       .word
@@ -313,13 +314,13 @@ rekk_unfilter:
   xchg      esi, [ebp+BUFFER+12*4]
   movsd
   xchg      esi, [ebp+BUFFER+12*4]
-  jmp       .main
+  jmp       short .tomain
 .word:
   ; fWI / o16 fDI: 2-byte immediate from stream 11
   xchg      esi, [ebp+BUFFER+11*4]
   movsw
   xchg      esi, [ebp+BUFFER+11*4]
-  jmp       .main
+  jmp       short .tomain
 
 section .data
 ; flag table: 2 nibbles per byte (code>>1 selects byte, code&1 selects nibble),

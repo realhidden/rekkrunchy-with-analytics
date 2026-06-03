@@ -276,8 +276,7 @@ rekk_depack:                       ; cdecl int rekk_depack(const u8 *src, u8 *ds
   inc       ebx
   
 .decodebitloop:
-  xor       eax, eax
-  cmp       eax, [ebp+Work.bitcounter]
+  cmp       dword [ebp+Work.bitcounter], 0   ; bumped as word -> hi half always 0
   jne       .nozeropage
   
   mov       eax, [ebp+Work.zeroprob]

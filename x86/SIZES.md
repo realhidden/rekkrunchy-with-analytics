@@ -6,24 +6,37 @@ here.
 
 | component | what it does | baseline | current |
 |-----------|--------------|---------:|--------:|
-| `depack.asm` (`rekk_depack`) | context-mixing range decoder (codec self-decompressor) | **1588** | 1584 |
-| `unfilter.asm` (`rekk_unfilter`) | x86 split-stream unfilter (reverses `-cx`) | **550** | 549 |
+| `depack.asm` (`rekk_depack`) | context-mixing range decoder (codec self-decompressor) | **1588** | 1583 |
+| `unfilter.asm` (`rekk_unfilter`) | x86 split-stream unfilter (reverses `-cx`) | **550** | 530 |
 
-A fully self-extracting filtered x86 payload runs both: 1584 + 549 = 2133 bytes
+A fully self-extracting filtered x86 payload runs both: 1583 + 530 = 2113 bytes
 of decoder `.text`.
 
 ## Golf log
 
 - `depack.asm` 1588→1584: `lodsd` folds the size-header read + pointer bump in
-  the entry prologue.
+  the entry prologue (via `gen_depack.py`).
+- `depack.asm` 1584→1583: zero-page test `xor eax,eax; cmp eax,[bitcounter]` →
+  `cmp dword [bitcounter],0` (bitcounter is bumped as a word, hi half always 0).
 - `unfilter.asm` 550→549: `.done` uses `lea eax,[edi-4]; sub eax,[offset]`
   instead of a three-instruction subtract; init builds the `~0` jump-table
   sentinel with `dec`/`neg` sharing the constant.
+- `unfilter.asm` 549→534: route the five copy-and-continue paths (fAD/fBR/fBI/
+  fDI/fWI) through a central `.tomain` trampoline so each reaches `.main` with a
+  2-byte `jmp short` instead of a 5-byte near jump.
+- `unfilter.asm` 534→530: the trampoline shrank offsets enough that the two
+  `jz/jne near` branches to `.nomdrm`/`.noaddr` now fit as 2-byte short jumps.
 
-Diminishing returns past this: ~95% of `depack.asm` is ryg's already-golfed
-PAQ model math, and the `unfilter.asm` body is dense `xchg esi,[ebp+disp8]` +
-`movs` stream plumbing (already 3 B/op, optimal). Further single-byte folds
-trade real correctness risk for little gain, so they were left.
+Why not more: a clean-room ablation (`research/cm.c`, see `research/NOTES.md`)
+proved no simpler model fits a 5% ratio budget — the size in `depack.asm` is the
+PAQ machinery that delivers the ratio. So the model math is left bit-exact and
+only framing/instruction-selection was golfed. The `unfilter.asm` body is now
+dense `xchg esi,[ebp+disp8]` + `movs` plumbing (3 B/op); deeper folds trade
+correctness risk for little gain.
+
+All golf steps verified: `depack.asm` against the corpus byte-exact (it still
+decodes the C compressor's output), `unfilter.asm` against the C `X86Unfilter`
+over 4 real `.text` files + 3046 fuzz cases incl. a crafted jump table.
 
 Notes:
 - The codec decoder is intrinsically large: it carries the full PAQ-style

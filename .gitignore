@@ -1,12 +1,6 @@
-*.ncb
-*.suo
-*.vcproj.*
-*.vcxproj.*
-*.sdf
-*.opensdf
-*/ipch/*
-Debug
-Release
-*.vcxproj.user
-*.vs/*
-*.args.json
+# build output
+/rekkrunchy
+*.o
+
+# generated dev artifact (oracle asm used only for table/validation builds)
+/test/oracle.asm

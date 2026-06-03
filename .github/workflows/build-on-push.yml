@@ -1,19 +1,25 @@
 name: build-on-push
 on: [push]
 jobs:
-  build:
-    runs-on: windows-latest
+  # Portable C compressor/decompressor — builds with gcc on any arch.
+  native:
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    - name: Setup NASM
-      uses: ilammy/setup-nasm@v1.5.1
-      with:
-        version: 2.10.07
-        platform: win32
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
-    - name: Build Debug|Win32
-      run: msbuild .\rekkrunchy.sln /p:Configuration=Debug /p:Platform=Win32
-    - name: Build Release|Win32
-      run: msbuild .\rekkrunchy.sln /p:Configuration=Release /p:Platform=Win32
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make
+      - name: Roundtrip test
+        run: make test
+
+  # x86 self-decompressor + full corpus roundtrip, in the 32-bit toolchain.
+  x86-corpus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install 32-bit toolchain
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib nasm
+      - name: Corpus test (C tool + x86 asm decoder)
+        run: sh test/corpus_test.sh

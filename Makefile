@@ -7,13 +7,13 @@
 #
 CC      ?= gcc
 CFLAGS  ?= -O2 -Wall -Wextra
-SRC      = src/main.c src/codec.c src/model.c src/tables.c
+SRC      = src/main.c src/codec.c src/model.c src/tables.c src/x86filter.c
 
 all: rekkrunchy
 
 # src/tables.c and x86/depack.asm are committed, generated artifacts; regenerate
 # them only when the originals change, via `make gen-tables` / `make gen-depack`.
-rekkrunchy: $(SRC) src/codec.h src/model.h
+rekkrunchy: $(SRC) src/codec.h src/model.h src/x86filter.h
 	$(CC) $(CFLAGS) -Isrc -o $@ $(SRC)
 
 # Quick sanity roundtrip using the tool on its own source.

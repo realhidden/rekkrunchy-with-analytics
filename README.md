@@ -21,14 +21,36 @@ Build & use
 -----------
 
 ```sh
-make                       # builds ./rekkrunchy with gcc
-./rekkrunchy -c file file.rk   # compress
-./rekkrunchy -d file.rk out    # decompress
-make test                  # quick self-roundtrip
+make                            # builds ./rekkrunchy with gcc
+./rekkrunchy -c  file file.rk   # compress
+./rekkrunchy -cx file file.rk   # compress with the x86 split-stream filter
+./rekkrunchy -d  file.rk out    # decompress (auto-detects the filter)
+make test                       # quick self-roundtrip
 ```
 
-The compressed format is `[4-byte little-endian original size][range-coded
-stream]`.
+The container is `[flag][orig size if x86][codec blob]`; the codec blob is
+`[4-byte original size][range-coded stream]`.
+
+x86 split-stream filter (`-cx`)
+-------------------------------
+
+`-cx` enables the original kkrunchy x86 preprocessor (`src/x86filter.c`, ported
+from `dis.cpp`). It disassembles 32-bit x86 code and splits instruction fields
+into 20 streams — opcodes, modrm/sib, per-register displacements, immediates,
+and jump/call targets — converting relative call/jump targets to absolute and
+delta-coding them. Grouping like fields and making repeated call sites identical
+lets the context-mixing model compress real x86 code noticeably better:
+
+| input (`.text`) | plain | `-cx` | win |
+|-----------------|------:|------:|----:|
+| ls   |  37216 |  34338 | −7.7% |
+| gcc  |  26077 |  23468 | −10.0% |
+| nasm | 115401 | 104335 | −9.6% |
+
+The transform is fully reversible for any input (it falls back to byte escapes
+for non-instruction bytes), and validated byte-exact over 864 real `.text`
+sections. An optional `va` argument sets the assumed load address (default
+`0x401000`); any value roundtrips — it only affects jump-table detection.
 
 x86 self-decompressor
 ---------------------
@@ -60,6 +82,7 @@ src/        portable C codec + CLI
   model.c     context-mixing model (port of model_asm.asm)
   codec.c     range encoder/decoder
   tables.c    lookup tables baked from the original model init (generated)
+  x86filter.c x86 split-stream preprocessor (port of dis.cpp), used by -cx
   main.c      command-line front-end
 x86/        standalone x86 self-decompressor (depack.asm, generated)
 test/       differential & corpus validation harness

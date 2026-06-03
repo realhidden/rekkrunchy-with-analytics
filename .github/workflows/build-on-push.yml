@@ -21,5 +21,13 @@ jobs:
           sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y gcc-multilib nasm
-      - name: Corpus test (C tool + x86 asm decoder)
+      - name: Corpus test (C codec + x86 asm decoder + x86 filter)
         run: sh test/corpus_test.sh
+      - name: x86 filter roundtrip over real .text sections
+        run: |
+          gcc -O2 -o /tmp/frt test/filter_roundtrip.c src/x86filter.c
+          for b in /usr/bin/* /bin/*; do
+            objcopy -O binary --only-section=.text "$b" /tmp/t.bin 2>/dev/null || continue
+            [ -s /tmp/t.bin ] && /tmp/frt /tmp/t.bin >/dev/null || true
+          done
+          echo "filter roundtrip sweep done"

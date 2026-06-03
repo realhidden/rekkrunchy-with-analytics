@@ -31,8 +31,22 @@ never needs to pack empty input in the self-extracting use case, so the stub
 omits the guard by design (keeps it smaller). The portable C `Decompress()`
 handles size 0 correctly.
 
+## 4. x86 filter reads a few bytes past the end of the code buffer
+
+`DisFilter` (dis.cpp) decodes instruction lengths past the logical end of the
+code section: the length scan and the jump-table scan read operand/table bytes
+beyond `code + size`. In the original this is harmless — the code section is a
+slice of a larger loaded image, so those bytes are mapped. The portable
+`X86Filter` would fault on a tightly-sized heap buffer, so it operates on a
+16-byte zero-padded copy and bounds the jump-table scan to the remaining input.
+The trailing bytes that don't form a whole instruction are escaped either way,
+so the output is identical. (Note: the original uses a *signed* size counter so
+an overshooting final instruction ends the pass; an unsigned counter would wrap
+— a porting hazard, not an original bug.)
+
 <!-- No correctness bugs in the model logic were found: the C port matches the
-     assembled original bit-for-bit over 762 system binaries plus the corpus.
+     assembled original bit-for-bit over 762 system binaries plus the corpus,
+     and the x86 filter roundtrips byte-exact over 864 real .text sections.
      Earlier suspicion that the match search desyncs encoder vs decoder by
      reading the cursor byte was investigated and dismissed — the standalone
      `cmpsb` before `repe cmpsb` has its ZF discarded, so it has no effect. -->

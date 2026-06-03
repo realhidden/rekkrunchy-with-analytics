@@ -87,9 +87,8 @@ rekk_depack:                       ; cdecl int rekk_depack(const u8 *src, u8 *ds
   mov       ebp, WorkData
   mov       esi, [esp+36]            ; arg1 src (pushad=32 + ret=4)
   mov       edi, [esp+40]            ; arg2 dst
-  mov       eax, [esi]               ; 4-byte little-endian original size
+  lodsd                              ; eax = 4-byte LE size; esi advances past it
   mov       dword [ebp+Work.outsize], eax
-  add       esi, 4
   mov       dword [ebp+Work.src], esi
   mov       dword [ebp+Work.dst], edi
   mov       dword [ebp+Work.origdst], edi

@@ -6,8 +6,11 @@ here.
 
 | component | what it does | baseline | current |
 |-----------|--------------|---------:|--------:|
-| `depack.asm` (`rekk_depack`) | context-mixing range decoder (codec self-decompressor) | **1588** | 1588 |
-| `unfilter.asm` (`rekk_unfilter`) | x86 split-stream unfilter (reverses `-cx`) | — | — |
+| `depack.asm` (`rekk_depack`) | context-mixing range decoder (codec self-decompressor) | **1588** | 1584 |
+| `unfilter.asm` (`rekk_unfilter`) | x86 split-stream unfilter (reverses `-cx`) | **550** | 550 |
+
+A fully self-extracting filtered x86 payload runs both: 1584 + 550 = 2134 bytes
+of decoder `.text`.
 
 Notes:
 - The codec decoder is intrinsically large: it carries the full PAQ-style

@@ -215,8 +215,10 @@ uint8_t *X86Filter(const uint8_t *input, uint32_t size, uint32_t va, uint32_t *o
                 memcpy(&val, instr, 4); instr += 4;
                 val += (uint32_t)(instr - start) + memory;
                 if (code1 != 0xe8) {              // jmp/jcc rel32: zigzag delta
-                    int32_t i = (int32_t)(val - lastJump);
-                    uint32_t tmp = (i < 0) ? (uint32_t)(-i * 2 - 1) : (uint32_t)(i * 2);
+                    // zigzag-encode the signed delta; inverse of the decoder's
+                    // `(t&1) ? ~(t>>1) : (t>>1)`. All unsigned: no signed overflow.
+                    uint32_t d = val - lastJump;
+                    uint32_t tmp = (d & 0x80000000u) ? (~d << 1) | 1 : d << 1;
                     buf_u32(&B[17], tmp);
                     lastJump = val;
                 } else {                          // call rel32: index into FuncTable

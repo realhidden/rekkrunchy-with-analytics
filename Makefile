@@ -31,6 +31,14 @@ docker-test: docker-build
 	docker run --rm --platform=linux/386 -v "$(CURDIR)":/app rekk-build \
 	  sh -c 'cd /app && sh test/corpus_test.sh'
 
+# Report the .text byte size of each standalone x86 decoder.
+decoder-size:
+	docker run --rm --platform=linux/386 -v "$(CURDIR)":/app rekk-build sh -c \
+	  'cd /app; for a in x86/depack.asm x86/unfilter.asm; do \
+	     [ -f "$$a" ] || continue; nasm -f elf32 -o /tmp/s.o "$$a" 2>/dev/null && \
+	     printf "%-22s %5d bytes .text\n" "$$a" "$$(size -A /tmp/s.o | awk "/\\.text/{print \$$2}")"; \
+	   done'
+
 # --- regenerate baked artifacts (needs the i386 docker image) -----------------
 
 gen-depack:

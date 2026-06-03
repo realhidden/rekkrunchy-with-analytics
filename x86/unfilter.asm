@@ -59,11 +59,11 @@ rekk_unfilter:
 
   xor       eax, eax
   mov       [ebp+dataArea.lastJump], eax
-  inc       eax
+  dec       eax                              ; eax = ~0
+  mov       [ebp+dataArea.jumpTable], eax    ; ~0 sentinel (no pending table)
+  neg       eax                              ; eax = 1
   mov       [ebp+dataArea.nextFunc], eax
   mov       [ebp+dataArea.funcTable], eax    ; funcTablePos starts at 1
-  dec       eax
-  mov       [ebp+dataArea.jumpTable], eax    ; ~0 sentinel (no pending table)
 
   ; set up the 20 stream cursors: buffer[i] = streams_base + sum(sizes[0..i-1])
   lea       ebx, [esi+NBUFFERS*4]
@@ -100,9 +100,8 @@ rekk_unfilter:
   jmp       .main
 
 .done:
-  mov       eax, edi
+  lea       eax, [edi-4]             ; offset = origdst-4, so edi-4-offset = edi-origdst
   sub       eax, [ebp+dataArea.offset]
-  sub       eax, byte 4              ; edi - origdst
   mov       [esp+28], eax            ; popad returns it in eax
   popad
   ret

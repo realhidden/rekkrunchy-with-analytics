@@ -15,6 +15,13 @@ gcc -m32 -O2 -w -Isrc -o /tmp/rekk $SRC
 nasm -f elf32 -o /tmp/depack.o x86/depack.asm
 gcc -m32 -O2 -w -o /tmp/td x86/test_depack.c /tmp/depack.o
 
+# also verify the standalone asm unfilter matches the C unfilter (differential)
+nasm -f elf32 -o /tmp/uf.o x86/unfilter.asm
+gcc -m32 -O2 -w -o /tmp/ud test/unfilter_diff.c src/x86filter.c /tmp/uf.o
+/tmp/ud corpus/*_text.bin >/dev/null 2>&1 \
+  && echo "asm unfilter: differential OK" \
+  || { echo "asm unfilter: FAIL"; exit 1; }
+
 pass=0; fail=0
 for f in corpus/*.bin; do
   name=$(basename "$f")

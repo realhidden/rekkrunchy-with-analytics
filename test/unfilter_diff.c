@@ -57,6 +57,19 @@ int main(int argc, char **argv) {
         total++; fail += !one(buf, n, 0x401000, "tiny");
     }
 
+    // crafted jump-table: `ff 24 85 <addr>` (jmp [table+eax*4]) followed by a
+    // run of in-range dword targets, exercising the jumpTable sentinel path.
+    {
+        uint32_t va = 0x401000;
+        uint32_t off = 0;
+        buf[off++]=0xff; buf[off++]=0x24; buf[off++]=0x85;        // jmp [4*eax + disp32]
+        uint32_t tableVA = va + 7;                                 // table right after the instr
+        memcpy(buf+off,&tableVA,4); off+=4;
+        for (int e=0;e<6;e++){ uint32_t t=va+2; memcpy(buf+off,&t,4); off+=4; }  // in-range entries
+        buf[off++]=0xc3;                                           // ret terminates
+        total++; fail += !one(buf, off, va, "jumptable");
+    }
+
     printf("%s: %d cases, %d failed\n", fail?"FAIL":"PASS", total, fail);
     return fail?1:0;
 }

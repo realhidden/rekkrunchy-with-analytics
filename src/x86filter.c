@@ -225,21 +225,21 @@ uint8_t *X86Filter(const uint8_t *input, uint32_t size, uint32_t va, uint32_t *o
 
         if ((flags & fMODE) == fAM) {
             switch (flags & fTYPE) {
-            case fAD: memcpy(&val, instr, 4); instr += 4; buf_u32(&B[15], val); break;
+            case fAD: memcpy(&val, instr, 4); instr += 4; buf_u32(&B[15], bswap32(val)); break;
             case fBR: buf_u8(&B[9], *instr++); break;
             case fDR: {
                 memcpy(&val, instr, 4); instr += 4;
                 val += (uint32_t)(instr - start) + memory;
                 if (code1 != 0xe8) {              // jmp/jcc rel32: absolute target
-                    // Store the absolute target (file offset). The model predicts
-                    // these better than the delta-coded form the original used.
-                    buf_u32(&B[17], val);
+                    // Absolute target (file offset), big-endian — like the other
+                    // 4-byte streams, the high byte clusters and predicts better.
+                    buf_u32(&B[17], bswap32(val));
                 } else {                          // call rel32: index into FuncTable
                     int i;
                     for (i = 0; i < 255; i++) if (funcTable[i] == val) break;
                     buf_u8(&B[16], (uint8_t)(i + 1));
                     if (i == 255) {
-                        buf_u32(&B[18], val);
+                        buf_u32(&B[18], bswap32(val));   // big-endian (see rel32)
                         funcTable[funcTablePos] = val;
                         if (++funcTablePos == 255) funcTablePos = 0;
                     }
@@ -348,19 +348,19 @@ uint32_t X86Unfilter(const uint8_t *packed, uint8_t *dest, uint32_t va_unused) {
 
             if ((flags & fMODE) == fAM) {
                 switch (flags & fTYPE) {
-                case fAD: memcpy(&val, buffer[15], 4); buffer[15] += 4; memcpy(dest, &val, 4); dest += 4; break;
+                case fAD: memcpy(&val, buffer[15], 4); buffer[15] += 4; val = bswap32(val); memcpy(dest, &val, 4); dest += 4; break;
                 case fBR: *dest++ = *buffer[9]++; break;
                 case fDR:
                     if (code == 0xe8) {
                         int i = *buffer[16]++;
                         if (i) val = funcTable[i];
                         else {
-                            memcpy(&val, buffer[18], 4); buffer[18] += 4;
+                            memcpy(&val, buffer[18], 4); buffer[18] += 4; val = bswap32(val);
                             funcTable[funcTablePos] = val;
                             if (++funcTablePos == 256) funcTablePos = 1;
                         }
                     } else {
-                        memcpy(&val, buffer[17], 4); buffer[17] += 4;   // absolute target
+                        memcpy(&val, buffer[17], 4); buffer[17] += 4; val = bswap32(val);   // abs target
                     }
                     val -= (uint32_t)(dest + 4 - start) + memory;
                     memcpy(dest, &val, 4); dest += 4;

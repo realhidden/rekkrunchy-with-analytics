@@ -44,9 +44,9 @@ real x86 code noticeably better:
 
 | input (`.text`) | plain | `-cx` | win |
 |-----------------|------:|------:|----:|
-| ls   |  37216 |  33726 | −9.4% |
-| gcc  |  26077 |  23049 | −11.6% |
-| nasm | 115401 | 101890 | −11.7% |
+| ls   |  37216 |  33648 | −9.6% |
+| gcc  |  26077 |  22885 | −12.2% |
+| nasm | 115401 | 101681 | −11.9% |
 
 The transform is fully reversible for any input (it falls back to byte escapes
 for non-instruction bytes), and validated byte-exact over 864 real `.text`

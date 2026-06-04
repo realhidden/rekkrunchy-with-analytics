@@ -248,9 +248,11 @@ rekk_unfilter:
 
   shr       cl, 2                    ; address-mode immediate type
   jnz       .noad
-  ; fAD: absolute 4-byte address from stream 15
+  ; fAD: absolute 4-byte address from stream 15 (stored big-endian)
   xchg      esi, [ebp+BUFFER+15*4]
-  movsd
+  lodsd
+  bswap     eax
+  stosd
   xchg      esi, [ebp+BUFFER+15*4]
   jmp       short .tomain
 .noad:
@@ -265,9 +267,10 @@ rekk_unfilter:
   xor       ebx, ebx
   cmp       byte [edi-1], 0xe8       ; call rel32 vs jmp/jcc rel32
   je        .dwcal
-  ; jmp/jcc: absolute target straight from stream 17 (no delta)
+  ; jmp/jcc: absolute target from stream 17 (no delta, big-endian)
   xchg      esi, [ebp+BUFFER+17*4]
   lodsd
+  bswap     eax
   xchg      esi, [ebp+BUFFER+17*4]
   jmp       short .storad
 .dwcal:
@@ -281,7 +284,8 @@ rekk_unfilter:
   jmp       short .storad
 .dcesc:
   xchg      esi, [ebp+BUFFER+18*4]
-  lodsd                              ; new absolute target offset from stream 18
+  lodsd                              ; new absolute target offset from stream 18 (BE)
+  bswap     eax
   xchg      esi, [ebp+BUFFER+18*4]
   mov       ebx, [ebp+dataArea.funcTable]
   mov       [ebp+dataArea.funcTable+ebx*4], eax

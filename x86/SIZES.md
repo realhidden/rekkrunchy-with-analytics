@@ -7,9 +7,9 @@ here.
 | component | what it does | baseline | current |
 |-----------|--------------|---------:|--------:|
 | `depack.asm` (`rekk_depack`) | context-mixing range decoder (codec self-decompressor) | **1588** | 1583 |
-| `unfilter.asm` (`rekk_unfilter`) | x86 split-stream unfilter (reverses `-cx`) | **550** | 629 |
+| `unfilter.asm` (`rekk_unfilter`) | x86 split-stream unfilter (reverses `-cx`) | **550** | 636 |
 
-A fully self-extracting filtered x86 payload runs both: 1583 + 629 = 2212 bytes
+A fully self-extracting filtered x86 payload runs both: 1583 + 636 = 2219 bytes
 of decoder `.text`. The unfilter grew 530→629 across the stream-layout rounds
 (per-opcode immediate + disp32/push split + big-endian imm32, 20→26 streams);
 that ~99 B of extra decoder buys ~2% off every compressed x86 payload. Round-3

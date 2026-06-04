@@ -177,5 +177,20 @@ per payload but the asm unfilter's permuted setup loop + order table costs
 ~133 B of decoder — a net wash for single-payload self-extraction. bswap alone
 is +3 B of decoder for −179 B/payload, clearly worth it.
 
-Final tally across all rounds: original 20-stream filter 169607 → 166107,
-**−3500 B (−2.06%)**. asm unfilter 530→629 B. Stream optimization closed out.
+## Round 6 — 32 experiments (12 transforms + 20 permutations), parallel
+
+Best: **w12 — byte-swap ALL the absolute 4-byte target streams** (rel32 #17,
+call-new #18, moffs #15), the same high-byte-clusters insight as imm32-bswap
+applied to targets. −618 B vs 166107, roundtrips full corpus. Subsets: rel32
+alone −421, abs alone −52, callnew alone +43 (so the win is mostly rel32).
+Negatives confirmed: rel32 pc-relative +2190, disp32 little-endian +444 (ryg's
+bswap was right), all 20 PERMUTATIONS worse (+140..+667 incl. 12 random) —
+index order is locally optimal, permutation conclusively dead. half-word swap,
+hi-byte split, target deltas, stream merges all lost.
+
+SHIPPED w12. asm cost +7 B (three lodsd/bswap, one movsd→lodsd/bswap/stosd).
+
+Final tally across all rounds: original 20-stream filter 169607 → **165489**,
+**−4118 B (−2.43%)**. ls −9.6%, gcc −12.2%, nasm −11.9% vs plain. asm unfilter
+530→636 B. Every 4-byte stream is now stored big-endian (high byte clusters);
+the model likes that uniformly. Stream optimization closed out for real.

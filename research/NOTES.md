@@ -265,3 +265,64 @@ Confirms the pre-filter: bucket size + distribution-distinctness both matter,
 not just "different opcode family". Stream surgery now genuinely exhausted —
 the only remaining upside is model-side (frozen under the 5% / decoder-size
 rules).
+
+---
+
+# CONCLUSION — stream surgery frozen (2026-06-04)
+
+Clean stop for the current format. Final shipped state:
+
+```
+32 streams; corpus 164645 B; vs original 20-stream -4962 B / -2.93%
+vs plain: ls -10.3%, gcc -12.4%, nasm -12.3%
+decoder: depack 1583 B + unfilter 775 B
+validated: fuzz 8057 (ASan+UBSan) + asm/C differential 3046 + corpus 9/9 byte-exact
+```
+
+## The rule (when a stream split is worth testing)
+
+ALL must hold:
+1. source stream is high-volume (pre-filter: >~3 KB; buckets stay >~512 B);
+2. the split key is already known from the instruction spine (no placeholders);
+3. the key corresponds to real STRUCTURAL REGULARITY, not mere opcode taxonomy;
+4. buckets stay coarse enough to avoid model re-warmup (4-way good, 8-way too fine);
+5. the decoder-side picker is cheaper than the expected per-payload gain.
+
+Good split keys: addressing form; stack/frame base register; immediate producer
+class ONLY when it implies real value regularity.
+Bad split keys: shared value type; arbitrary opcode family; fine register
+identity; forward/backward or value-derived classifications; anything needing
+spine placeholders.
+
+Canonical positive: disp32 by base (esp=args, ebp=locals, GP=arrays/tables).
+Canonical negative: imm32 by opcode family — semantically different but not
+regular enough; fragmentation cost beats the separation gain.
+
+## Rejected ideas — DO NOT re-litigate (regression boundary)
+
+- do not merge call/jump/abs target streams (different statistical objects) [R8]
+- do not split opcode/modrm/push-reg spine fields [R3/R5]
+- do not value-remap within streams: delta/MTF/SoA/byteplane/zigzag/half-word [R2-R7]
+- do not permute stream concatenation order (index order is locally optimal) [R5/R6]
+- do not split imm32 further by opcode/register/dest family [R9]
+- do not chase rel8/disp8/imm16 (low-volume and/or near-random) [R4/R7]
+- do not widen the call funcTable (already 78-87% hit; misses are first-use) [R4]
+
+## Only remaining upside: model-side (behind the frozen-codec boundary)
+
+Smallest worthwhile experiment if the stub is ever reopened: a stream-id +
+byte-phase context, exposing to the model:
+  stream_id (or broad class: opcode/imm32/disp32/target32/misc)
+  byte_pos_mod_4 for 32-bit big-endian streams
+so it can learn "disp32 byte0 != byte3", "target32 high byte != imm32 low byte",
+"opcode byte != operand byte" — without more stream surgery.
+Evaluate C-only first; ship only if corpus gain >= ~1.0% (preferably 1.5%+),
+because model complexity costs decoder bytes that a reversible filter tweak does
+not. Bigger "better PAQ" work is explicitly out of scope (5% / decoder-size).
+
+## The actual finding
+
+Not "one more trick" but the boundary itself: the x86 filter helps only when it
+exposes regular, producer-specific operand structure. Once those regular
+structures are separated, the frozen PAQ model has nothing left to exploit from
+byte-level reshuffling.

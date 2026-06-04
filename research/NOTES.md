@@ -138,3 +138,22 @@ the original 20-stream filter. Streams 20→26. asm unfilter 619→626 B (the
 zigzag removal paid for most of the disp32/push routing). Validated: filter
 fuzz 8057 ASan+UBSan, asm-unfilter differential 3046 cases (incl. jump table),
 corpus 9/9 byte-exact.
+
+## Round 4 — call-target / disp8 / abs retests: ALL negative, vein exhausted
+
+Tested vs 166286: wider funcTable for calls (1024/4096/16384 slots, 2-byte
+index), abs+jumptab split, rel32-absolute SoA, call-new SoA, disp8 tiny-bucket
+merge, imm8 test-al group. Best *valid* result was disp8 tiny-merge −65 B
+(0.04%, noise); everything else ≥0 or worse, SoA on the now-absolute target
+streams still loses (+921..+2677).
+
+The funcTable idea looked promising but is dead on the merits: instrumenting the
+real filter shows the 255-slot table already hits **78–87%**, and the misses are
+only 200–665 *distinct* first-use targets (fewer than 255 for gcc/ls) — i.e. the
+table is NOT capacity-thrashing, so widening it can't convert misses to hits,
+while a 2-byte index would add ~1.5–5 KB. (The f1–f3 builds also FAIL roundtrip
+— buggy wrap symmetry — but the analysis kills it regardless.)
+
+Conclusion: after 3 productive rounds (−1.96% total) the stream-splitting vein
+is exhausted. Remaining streams are near-entropy (rel8, opcodes) or already
+optimally split. Nothing shipped in round 4.

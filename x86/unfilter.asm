@@ -13,13 +13,12 @@
 bits 32
 global rekk_unfilter
 
-%define NBUFFERS 24
+%define NBUFFERS 26
 %define BUFFER dataArea.buffer
 
 struc dataArea
 .buffer     resd NBUFFERS
 .offset     resd 1          ; origdst - 4 (for funcTable / rel32 reconstruction)
-.lastJump   resd 1
 .nextFunc   resd 1
 .jumpTable  resd 1          ; next jump-table address, biased into dst-space
 .jtbias     resd 1          ; origdst - va  (adds VA-space addr -> dst pointer)
@@ -58,14 +57,13 @@ rekk_unfilter:
   mov       [ebp+dataArea.offset], ebx
 
   xor       eax, eax
-  mov       [ebp+dataArea.lastJump], eax
   dec       eax                              ; eax = ~0
   mov       [ebp+dataArea.jumpTable], eax    ; ~0 sentinel (no pending table)
   neg       eax                              ; eax = 1
   mov       [ebp+dataArea.nextFunc], eax
   mov       [ebp+dataArea.funcTable], eax    ; funcTablePos starts at 1
 
-  ; set up the 20 stream cursors: buffer[i] = streams_base + sum(sizes[0..i-1])
+  ; set up the stream cursors: buffer[i] = streams_base + sum(sizes[0..i-1])
   lea       ebx, [esi+NBUFFERS*4]
   xor       ecx, ecx
 .init:
@@ -217,14 +215,22 @@ rekk_unfilter:
   cmp       al, 0x05
   jne       .nomdrm
 .dis32:
-  xor       ebx, ebx
+  ; pick disp32 stream: (modrm&0xc7)==5 -> 14 ; (modrm&7)==4 (SIB) -> 24 ; else 13
+  mov       ebx, 13
   cmp       ch, 5
-  jne       .nomr5
-  inc       ebx
-.nomr5:
-  xchg      esi, [ebp+BUFFER+13*4+ebx*4]
+  jne       .d32nomr5
+  mov       bl, 14
+  jmp       short .d32sel
+.d32nomr5:
+  mov       al, ch
+  and       al, 7
+  cmp       al, 4
+  jne       .d32sel
+  mov       bl, 24
+.d32sel:
+  xchg      esi, [ebp+BUFFER+ebx*4]
   lodsd
-  xchg      esi, [ebp+BUFFER+13*4+ebx*4]
+  xchg      esi, [ebp+BUFFER+ebx*4]
   bswap     eax
   stosd
   cmp       word [ebp+dataArea.codebuf], 0x24ff   ; jmp [table] -> note address
@@ -259,16 +265,10 @@ rekk_unfilter:
   xor       ebx, ebx
   cmp       byte [edi-1], 0xe8       ; call rel32 vs jmp/jcc rel32
   je        .dwcal
-  ; jmp/jcc: zigzag delta from stream 17, accumulate into lastJump
+  ; jmp/jcc: absolute target straight from stream 17 (no delta)
   xchg      esi, [ebp+BUFFER+17*4]
   lodsd
   xchg      esi, [ebp+BUFFER+17*4]
-  shr       eax, 1
-  jnc       .jmpnc
-  not       eax
-.jmpnc:
-  add       eax, [ebp+dataArea.lastJump]
-  mov       [ebp+dataArea.lastJump], eax
   jmp       short .storad
 .dwcal:
   xor       eax, eax
@@ -353,7 +353,7 @@ rekk_unfilter:
   ret
 .alimm8 db 0x04,0x0c,0x24,0x2c,0x34,0x3c,0
 
-; imm32_stream: ebx = 22 if op==c7; 23 if op in b8..bf; else 12.
+; imm32_stream: ebx = 22 if op==c7; 23 if b8..bf; 25 if op==0x68 (push); else 12.
 .imm32sel:
   mov       al, [ebp+dataArea.codebuf]
   mov       ebx, 22
@@ -363,6 +363,9 @@ rekk_unfilter:
   mov       ah, al
   and       ah, 0xf8
   cmp       ah, 0xb8                  ; b8..bf
+  je        .i32done
+  mov       bl, 25
+  cmp       al, 0x68                  ; push imm32
   je        .i32done
   mov       bl, 12
 .i32done:

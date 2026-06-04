@@ -7,12 +7,14 @@ here.
 | component | what it does | baseline | current |
 |-----------|--------------|---------:|--------:|
 | `depack.asm` (`rekk_depack`) | context-mixing range decoder (codec self-decompressor) | **1588** | 1583 |
-| `unfilter.asm` (`rekk_unfilter`) | x86 split-stream unfilter (reverses `-cx`) | **550** | 619 |
+| `unfilter.asm` (`rekk_unfilter`) | x86 split-stream unfilter (reverses `-cx`) | **550** | 626 |
 
-A fully self-extracting filtered x86 payload runs both: 1583 + 619 = 2202 bytes
-of decoder `.text`. (The unfilter grew from 530→619 when the 24-stream
-immediate-split landed — it now computes the per-opcode immediate stream index;
-that costs ~89 B of decoder but saves ~0.85% of every compressed x86 payload.)
+A fully self-extracting filtered x86 payload runs both: 1583 + 626 = 2209 bytes
+of decoder `.text`. The unfilter grew 530→626 across two stream-layout rounds
+(per-opcode immediate + disp32/push split, 20→26 streams); that ~96 B of extra
+decoder buys ~2% off every compressed x86 payload. Note round-3 also *removed*
+the rel32 zigzag (storing absolute targets compresses better), which shrank the
+decoder and offset most of the new routing cost.
 
 ## Golf log
 

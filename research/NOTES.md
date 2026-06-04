@@ -113,3 +113,28 @@ V5 cost: 4 extra streams (20→24, +16 B header/file, already netted) and ~89 B
 in the asm unfilter (it now computes the per-opcode immediate stream index).
 Validated: filter fuzz 8057 ASan+UBSan, asm-unfilter differential 3046 cases,
 corpus 9/9 byte-exact.
+
+## Round 3 — 16 more experiments, three more WINS shipped
+
+Harness: `research/gen16.py` + parallel local build/measure (16 jobs at once).
+All vs V5 baseline 168166 (sum over cat/ls/gcc/nasm), real `-cx` + roundtrip.
+
+Top results:
+- **e12 rel32 absolute (drop zigzag): −1258** — the biggest, and it *removes*
+  code. Storing the absolute jump target compresses better than ryg's delta+
+  zigzag transform; the C filter/unfilter AND the asm unfilter all get simpler.
+- **e8 disp32 SIB-split: −451** — route SIB-based disp32 (modrm low3==4) to its
+  own stream #24, separate from base-relative disp32 (#13).
+- **e5 push-imm32 (0x68) → #25: −166** on top of e8.
+- e1 rel32 byte-plane −300, e7 imm8-test −39, e6 imm8-shift −100: minor / not
+  taken (conflict with e12 or marginal).
+- NEGATIVE: e2 disp32 SoA +2919, e16 per-opcode modrm-split +2772, e3 rel32
+  jmp-vs-jcc +286, e14 mov-reg SoA +458, e10 disp8 partial-merge +135. Byte
+  reordering (SoA/byteplane) on the big streams consistently loses — the model
+  wants the natural byte order.
+
+SHIPPED e12+e8+e5 (stacked, additive): 169607 → 166286, **−3321 (−1.96%)** vs
+the original 20-stream filter. Streams 20→26. asm unfilter 619→626 B (the
+zigzag removal paid for most of the disp32/push routing). Validated: filter
+fuzz 8057 ASan+UBSan, asm-unfilter differential 3046 cases (incl. jump table),
+corpus 9/9 byte-exact.

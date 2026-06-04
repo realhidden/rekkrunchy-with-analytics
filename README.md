@@ -36,17 +36,17 @@ x86 split-stream filter (`-cx`)
 
 `-cx` enables the original kkrunchy x86 preprocessor (`src/x86filter.c`, ported
 from `dis.cpp`). It disassembles 32-bit x86 code and splits instruction fields
-into 24 streams — opcodes, modrm/sib, per-register displacements, immediates
-(grouped by opcode class), and jump/call targets — converting relative call/jump
-targets to absolute and delta-coding them. Grouping like fields and making
-repeated call sites identical lets the context-mixing model compress real x86
-code noticeably better:
+into 26 streams — opcodes, modrm/sib, per-register displacements, immediates and
+displacements (grouped by opcode class / addressing form), and jump/call targets
+(made absolute) — so each field type compresses against its own statistics, and
+repeated call sites become identical. The context-mixing model then compresses
+real x86 code noticeably better:
 
 | input (`.text`) | plain | `-cx` | win |
 |-----------------|------:|------:|----:|
-| ls   |  37216 |  34046 | −8.5% |
-| gcc  |  26077 |  23283 | −10.7% |
-| nasm | 115401 | 103429 | −10.4% |
+| ls   |  37216 |  33764 | −9.3% |
+| gcc  |  26077 |  23130 | −11.3% |
+| nasm | 115401 | 102065 | −11.6% |
 
 The transform is fully reversible for any input (it falls back to byte escapes
 for non-instruction bytes), and validated byte-exact over 864 real `.text`

@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define NBUFFERS 24
+#define NBUFFERS 26
 
 // instruction format flags (mirrors dis.cpp)
 #define fNM   0x0   // no modrm
@@ -81,6 +81,7 @@ static inline int imm8_stream(uint8_t op) {
 static inline int imm32_stream(uint8_t op) {
     if (op == 0xc7) return 22;                          // mov r/m, imm32
     if (op >= 0xb8 && op <= 0xbf) return 23;            // mov reg, imm32
+    if (op == 0x68) return 25;                          // push imm32
     return 12;
 }
 
@@ -145,7 +146,7 @@ uint8_t *X86Filter(const uint8_t *input, uint32_t size, uint32_t va, uint32_t *o
     uint32_t funcTable[255];
     for (int i = 0; i < 255; i++) funcTable[i] = ~0U;
     int funcTablePos = 0, nextFunc = 1;
-    uint32_t lastJump = 0, jumpTable = ~0U;
+    uint32_t jumpTable = ~0U;
 
     // first pass: find the size of the final (possibly partial) instruction so
     // the trailing bytes that don't form a whole instruction are escaped.
@@ -217,7 +218,7 @@ uint8_t *X86Filter(const uint8_t *input, uint32_t size, uint32_t va, uint32_t *o
             if ((modrm & 0xc0) == 0x80 || (modrm & 0xc7) == 0x05 ||
                 ((modrm & 0xc0) == 0 && (sib & 0x07) == 5)) {
                 memcpy(&val, instr, 4); instr += 4;
-                buf_u32(&B[(modrm & 0xc7) == 5 ? 14 : 13], bswap32(val));
+                buf_u32(&B[(modrm & 0xc7) == 5 ? 14 : (((modrm & 7) == 4) ? 24 : 13)], bswap32(val));
                 if (code1 == 0xff && modrm == 0x24 && val < jumpTable) jumpTable = val;
             }
         }
@@ -229,13 +230,10 @@ uint8_t *X86Filter(const uint8_t *input, uint32_t size, uint32_t va, uint32_t *o
             case fDR: {
                 memcpy(&val, instr, 4); instr += 4;
                 val += (uint32_t)(instr - start) + memory;
-                if (code1 != 0xe8) {              // jmp/jcc rel32: zigzag delta
-                    // zigzag-encode the signed delta; inverse of the decoder's
-                    // `(t&1) ? ~(t>>1) : (t>>1)`. All unsigned: no signed overflow.
-                    uint32_t d = val - lastJump;
-                    uint32_t tmp = (d & 0x80000000u) ? (~d << 1) | 1 : d << 1;
-                    buf_u32(&B[17], tmp);
-                    lastJump = val;
+                if (code1 != 0xe8) {              // jmp/jcc rel32: absolute target
+                    // Store the absolute target (file offset). The model predicts
+                    // these better than the delta-coded form the original used.
+                    buf_u32(&B[17], val);
                 } else {                          // call rel32: index into FuncTable
                     int i;
                     for (i = 0; i < 255; i++) if (funcTable[i] == val) break;
@@ -297,7 +295,7 @@ uint32_t X86Unfilter(const uint8_t *packed, uint8_t *dest, uint32_t va_unused) {
     uint8_t *oldDest = dest;
     uint32_t funcTable[256];
     int funcTablePos = 1, nextFunc = 1;
-    uint32_t lastJump = 0, memory = 0, jumpTable = ~0U, val;
+    uint32_t memory = 0, jumpTable = ~0U, val;
 
     while (buffer[0] < finish) {
         uint8_t *start = dest;
@@ -338,7 +336,7 @@ uint32_t X86Unfilter(const uint8_t *packed, uint8_t *dest, uint32_t va_unused) {
                 if ((modrm & 0xc0) == 0x40) *dest++ = *buffer[(modrm & 0x07) + 1]++;
                 if ((modrm & 0xc0) == 0x80 || (modrm & 0xc7) == 0x05 ||
                     ((modrm & 0xc0) == 0 && (sib & 0x07) == 5)) {
-                    int i = (modrm & 0xc7) == 5 ? 14 : 13;
+                    int i = (modrm & 0xc7) == 5 ? 14 : (((modrm & 7) == 4) ? 24 : 13);
                     memcpy(&val, buffer[i], 4); buffer[i] += 4; val = bswap32(val);
                     memcpy(dest, &val, 4); dest += 4;
                     if (code == 0xff && modrm == 0x24 && val < jumpTable) jumpTable = val;
@@ -359,9 +357,7 @@ uint32_t X86Unfilter(const uint8_t *packed, uint8_t *dest, uint32_t va_unused) {
                             if (++funcTablePos == 256) funcTablePos = 1;
                         }
                     } else {
-                        memcpy(&val, buffer[17], 4); buffer[17] += 4;
-                        val = (val & 1) ? ~(val >> 1) : (val >> 1);
-                        lastJump += val; val = lastJump;
+                        memcpy(&val, buffer[17], 4); buffer[17] += 4;   // absolute target
                     }
                     val -= (uint32_t)(dest + 4 - start) + memory;
                     memcpy(dest, &val, 4); dest += 4;

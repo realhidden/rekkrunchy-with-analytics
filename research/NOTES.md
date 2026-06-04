@@ -194,3 +194,22 @@ Final tally across all rounds: original 20-stream filter 169607 → **165489**,
 **−4118 B (−2.43%)**. ls −9.6%, gcc −12.2%, nasm −11.9% vs plain. asm unfilter
 530→636 B. Every 4-byte stream is now stored big-endian (high byte clusters);
 the model likes that uniformly. Stream optimization closed out for real.
+
+## Round 7 — rel8/disp8/disp32 normalization + opcode delta: ALL negative
+
+Targeted ideas (zigzag stack displacements, rel8-as-absolute-low-byte, opcode
+delta/xor). vs 165489, all worse:
+- rel8_abs_low8 +40 (valid). The clean "same win as rel32" bet FAILS here: rel8
+  is only 1.6–4.2 KB and already 7.4–7.6 bits/byte (near-random). rel32 won
+  because it's high-volume (24 KB) with repeated targets; rel8 short branches go
+  to nearby mostly-distinct targets, so abs-low-byte is just as random AND tiny,
+  so even a perfect transform saves nothing. rel8 is a dead stream by nature.
+- disp8 zigzag (all / ebp / esp / ebp|esp): +93..+256. The model already handles
+  the f8/08 small-offset bimodality; zigzag disrupts its learned contexts.
+- disp32 zigzag on stack base: +399..+475.
+- opcode xor/sub-prev: +21000 (catastrophic) — byte history is exactly what the
+  model already uses; delta destroys it. (Also fragile vs other stream-0 writes.)
+
+Confirms the standing rule once more: within-stream value transforms lose;
+only field SEPARATION and big-endian SERIALIZATION of high-volume structured
+streams help. Nothing shipped.

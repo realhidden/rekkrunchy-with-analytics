@@ -252,7 +252,10 @@ uint8_t *X86Filter(const uint8_t *input, uint32_t size, uint32_t va, uint32_t *o
             //   #20 group-arith (0x80/0x83), #21 AL-immediate forms, #10 rest.
             case fBI: buf_u8(&B[imm8_stream(code1)], *instr++); break;
             // imm32 split 3 ways: #22 mov r/m (0xc7), #23 mov reg (0xb8..bf), #12 rest.
-            case fDI: if (!o16) { buf_put(&B[imm32_stream(code1)], instr, 4); instr += 4; break; }
+            // Stored big-endian (bswap): the high byte (often 0x00/0xff sign bytes)
+            // then clusters, which the model predicts better.
+            case fDI: if (!o16) { uint32_t iv; memcpy(&iv, instr, 4); iv = bswap32(iv);
+                                  buf_put(&B[imm32_stream(code1)], &iv, 4); instr += 4; break; }
                       /* fall through */
             case fWI: buf_put(&B[11], instr, 2); instr += 2; break;
             }
@@ -366,7 +369,7 @@ uint32_t X86Unfilter(const uint8_t *packed, uint8_t *dest, uint32_t va_unused) {
             } else {
                 switch (flags & fTYPE) {
                 case fBI: { int s=imm8_stream(code); *dest++ = *buffer[s]++; break; }
-                case fDI: if (!o16) { int s=imm32_stream(code); memcpy(dest, buffer[s], 4); dest += 4; buffer[s] += 4; break; }
+                case fDI: if (!o16) { int s=imm32_stream(code); uint32_t iv; memcpy(&iv, buffer[s], 4); iv = bswap32(iv); memcpy(dest, &iv, 4); dest += 4; buffer[s] += 4; break; }
                           /* fall through */
                 case fWI: memcpy(dest, buffer[11], 2); dest += 2; buffer[11] += 2; break;
                 }

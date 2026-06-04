@@ -311,10 +311,12 @@ rekk_unfilter:
   jnz       .word
   test      dh, dh                   ; o16? then it's a word immediate
   jnz       .word
-  ; fDI: 4-byte immediate, stream chosen by opcode class (see imm32_stream)
+  ; fDI: 4-byte immediate, stream chosen by opcode class; stored big-endian (bswap)
   call      .imm32sel                ; ebx = stream index
   xchg      esi, [ebp+BUFFER+ebx*4]
-  movsd
+  lodsd
+  bswap     eax
+  stosd
   xchg      esi, [ebp+BUFFER+ebx*4]
   jmp       short .tomain
 .word:

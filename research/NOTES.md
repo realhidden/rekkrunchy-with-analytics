@@ -157,3 +157,25 @@ while a 2-byte index would add ~1.5–5 KB. (The f1–f3 builds also FAIL roundt
 Conclusion: after 3 productive rounds (−1.96% total) the stream-splitting vein
 is exhausted. Remaining streams are near-entropy (rel8, opcodes) or already
 optimally split. Nothing shipped in round 4.
+
+## Round 5 — "craziest ideas": stream PERMUTATION + transforms (16, parallel)
+
+New lever finally tried: **physical stream concatenation order**. The model runs
+continuously across the blob, so adjacent streams share context. Permuting the
+payload order (header sizes stay index-ordered; decoder bakes the same order)
+is reversible. Identity perm = +0 (infra sanity ✓). Findings vs 166286:
+- byte transforms: **c7 big-endian imm32 (bswap) −179** (best, trivial); rel8
+  zigzag +7, call-target delta +397, rel8/call-idx merge +892, SoA on absolute
+  targets +900..+2677 (still lose).
+- permutations: reverse +667 (order matters!); semantic clusterings help a bit —
+  disp-cluster −139, family −137, rel8-last −127; most others ±small.
+- c7 (bswap) + c11 (disp-cluster perm) compose to −311.
+
+SHIPPED: **c7 only (big-endian imm32)**, −179 B → corpus 169607→166107
+(**−2.06%** cumulative). The permutation was REJECTED on cost: it saved ~132 B
+per payload but the asm unfilter's permuted setup loop + order table costs
+~133 B of decoder — a net wash for single-payload self-extraction. bswap alone
+is +3 B of decoder for −179 B/payload, clearly worth it.
+
+Final tally across all rounds: original 20-stream filter 169607 → 166107,
+**−3500 B (−2.06%)**. asm unfilter 530→629 B. Stream optimization closed out.

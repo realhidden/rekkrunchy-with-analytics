@@ -13,7 +13,7 @@
 bits 32
 global rekk_unfilter
 
-%define NBUFFERS 26
+%define NBUFFERS 32
 %define BUFFER dataArea.buffer
 
 struc dataArea
@@ -24,7 +24,8 @@ struc dataArea
 .jtbias     resd 1          ; origdst - va  (adds VA-space addr -> dst pointer)
 .codebuf    resb 1
 .modrmbuf   resb 1
-._pad       resb 2
+.sibbuf     resb 1
+._pad       resb 1
 .funcTable  resd 256
 .size:
 endstruc
@@ -191,6 +192,8 @@ rekk_unfilter:
   cmp       al, 0x04                 ; sib present?
   jne       .nosib
   xchg      esi, [ebp+BUFFER+19*4]
+  mov       al, [esi]                ; remember SIB byte for disp32 stream pick
+  mov       [ebp+dataArea.sibbuf], al
   movsb
   xchg      esi, [ebp+BUFFER+19*4]
 .nosib:
@@ -215,19 +218,7 @@ rekk_unfilter:
   cmp       al, 0x05
   jne       .nomdrm
 .dis32:
-  ; pick disp32 stream: (modrm&0xc7)==5 -> 14 ; (modrm&7)==4 (SIB) -> 24 ; else 13
-  mov       ebx, 13
-  cmp       ch, 5
-  jne       .d32nomr5
-  mov       bl, 14
-  jmp       short .d32sel
-.d32nomr5:
-  mov       al, ch
-  and       al, 7
-  cmp       al, 4
-  jne       .d32sel
-  mov       bl, 24
-.d32sel:
+  call      .d32sel_fn               ; ebx = disp32 stream (mirrors disp32_stream)
   xchg      esi, [ebp+BUFFER+ebx*4]
   lodsd
   xchg      esi, [ebp+BUFFER+ebx*4]
@@ -375,6 +366,41 @@ rekk_unfilter:
   je        .i32done
   mov       bl, 12
 .i32done:
+  ret
+
+; disp32 stream picker — mirrors (modrm&0xc7)==5?14:disp32_stream(modrm,sib) in C.
+; in: ch = modrm&0xc7, dataArea.sibbuf = SIB byte. out: ebx = stream. clobbers eax.
+.d32sel_fn:
+  mov       bl, 14
+  cmp       ch, 5                     ; no-base disp32
+  je        .d32ret
+  mov       al, ch
+  and       al, 7
+  cmp       al, 4                     ; SIB form?
+  jne       .d32base                  ; no -> base = modrm&7
+  mov       al, [ebp+dataArea.sibbuf] ; SIB base
+  and       al, 7
+  mov       bl, 24
+  cmp       al, 4
+  je        .d32ret                   ; esp
+  mov       bl, 26
+  cmp       al, 5
+  je        .d32ret                   ; ebp
+  mov       bl, 27
+  cmp       al, 4
+  jb        .d32ret                   ; eax-ebx (0..3)
+  mov       bl, 28                    ; esi-edi (6,7)
+  jmp       short .d32ret
+.d32base:                             ; [reg+disp32], base = ch&7 (al already)
+  mov       bl, 29
+  cmp       al, 4
+  jb        .d32ret                   ; eax-ebx
+  mov       bl, 30
+  cmp       al, 6
+  je        .d32ret                   ; esi
+  mov       bl, 31                    ; edi (7)
+.d32ret:
+  movzx     ebx, bl
   ret
 
 section .data

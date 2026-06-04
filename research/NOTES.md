@@ -213,3 +213,26 @@ delta/xor). vs 165489, all worse:
 Confirms the standing rule once more: within-stream value transforms lose;
 only field SEPARATION and big-endian SERIALIZATION of high-volume structured
 streams help. Nothing shipped.
+
+## Round 8 — cross-stream target sharing (NO) + disp32 per-base split (BIG YES)
+
+Cross-stream target unification (merge rel32 #17 + call-miss #18, ±abs #15 into
+one target32, instruction order): ALL WORSE +675..+1125. Calls and jumps have
+different target distributions — merging pollutes context, same reason disp8
+per-register *split* wins. So the field-separation rule cuts the other way here:
+unifying streams with different distributions loses. Dictionary not pursued
+(would start −675 behind).
+
+disp32 per-base split (the "cheap closure test" — turned out to be the win):
+the SIB-based disp32 (#24) and base-relative disp32 (#13) carry strong per-base
+structure (esp=args, ebp=locals, GP=arrays). Split both by base register:
+  SIB base:   esp #24, ebp #26, eax-ebx #27, esi-edi #28
+  modrm base: eax-ebx #29, esi #30, edi #31
+Progression: SIB-only 4-way −320; + #13 split −844 (sweet spot at SIB-4way +
+#13-3way; finer fragments and loses). SHIPPED. Streams 26→32.
+
+Filter total 165489 → 164645, **−844 (−0.51%)**; cumulative vs original 20-stream
+169607 → 164645 = **−4962 (−2.93%)**. ls −10.3%, gcc −12.4%, nasm −12.3% vs
+plain. asm unfilter 636→775 B (per-base disp32 picker .d32sel_fn + 6 streams;
+needed a saved SIB byte, dataArea.sibbuf). Validated: fuzz 8057 ASan+UBSan,
+asm differential 3046, corpus 9/9 byte-exact.

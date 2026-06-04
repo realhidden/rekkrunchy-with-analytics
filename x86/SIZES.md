@@ -7,10 +7,12 @@ here.
 | component | what it does | baseline | current |
 |-----------|--------------|---------:|--------:|
 | `depack.asm` (`rekk_depack`) | context-mixing range decoder (codec self-decompressor) | **1588** | 1583 |
-| `unfilter.asm` (`rekk_unfilter`) | x86 split-stream unfilter (reverses `-cx`) | **550** | 636 |
+| `unfilter.asm` (`rekk_unfilter`) | x86 split-stream unfilter (reverses `-cx`) | **550** | 775 |
 
-A fully self-extracting filtered x86 payload runs both: 1583 + 636 = 2219 bytes
-of decoder `.text`. The unfilter grew 530→629 across the stream-layout rounds
+A fully self-extracting filtered x86 payload runs both: 1583 + 775 = 2358 bytes
+of decoder `.text`. The unfilter grew 636→775 when disp32 was split per base
+register (the `.d32sel_fn` picker + 6 extra streams); that ~139 B of decoder
+buys ~0.5% off every compressed x86 payload (net positive after one payload). The unfilter grew 530→629 across the stream-layout rounds
 (per-opcode immediate + disp32/push split + big-endian imm32, 20→26 streams);
 that ~99 B of extra decoder buys ~2% off every compressed x86 payload. Round-3
 also *removed* the rel32 zigzag (absolute targets compress better), offsetting

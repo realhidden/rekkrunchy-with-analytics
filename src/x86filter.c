@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define NBUFFERS 26
+#define NBUFFERS 32
 
 // instruction format flags (mirrors dis.cpp)
 #define fNM   0x0   // no modrm
@@ -77,6 +77,20 @@ static inline int imm8_stream(uint8_t op) {
     if (op == 0x80 || op == 0x83) return 20;            // group-arith r/m, imm8
     if (op==0x04||op==0x0c||op==0x24||op==0x2c||op==0x34||op==0x3c) return 21; // AL, imm8
     return 10;
+}
+// disp32 displacements split by addressing form / base register — locals (ebp),
+// stack args (esp), low vs high GP bases all have distinct displacement value
+// distributions, so per-base streams let the model adapt (~0.5% on x86 code).
+//   #14 no-base (mod==00,r/m==5)   — caller checks this first, not here.
+// SIB-based (modrm r/m==4): by SIB base   esp #24, ebp #26, eax-ebx #27, esi-edi #28
+// base-relative (other):    by modrm base eax-ebx #29, esi #30, edi #31
+static inline int disp32_stream(uint8_t modrm, uint8_t sib) {
+    if ((modrm & 7) == 4) {                 // SIB form
+        int b = sib & 7;
+        return b == 4 ? 24 : b == 5 ? 26 : (b < 4 ? 27 : 28);
+    }
+    int b = modrm & 7;                      // [reg+disp32]
+    return b < 4 ? 29 : b == 6 ? 30 : 31;
 }
 static inline int imm32_stream(uint8_t op) {
     if (op == 0xc7) return 22;                          // mov r/m, imm32
@@ -218,7 +232,7 @@ uint8_t *X86Filter(const uint8_t *input, uint32_t size, uint32_t va, uint32_t *o
             if ((modrm & 0xc0) == 0x80 || (modrm & 0xc7) == 0x05 ||
                 ((modrm & 0xc0) == 0 && (sib & 0x07) == 5)) {
                 memcpy(&val, instr, 4); instr += 4;
-                buf_u32(&B[(modrm & 0xc7) == 5 ? 14 : (((modrm & 7) == 4) ? 24 : 13)], bswap32(val));
+                buf_u32(&B[(modrm & 0xc7) == 5 ? 14 : disp32_stream(modrm, sib)], bswap32(val));
                 if (code1 == 0xff && modrm == 0x24 && val < jumpTable) jumpTable = val;
             }
         }
@@ -339,7 +353,7 @@ uint32_t X86Unfilter(const uint8_t *packed, uint8_t *dest, uint32_t va_unused) {
                 if ((modrm & 0xc0) == 0x40) *dest++ = *buffer[(modrm & 0x07) + 1]++;
                 if ((modrm & 0xc0) == 0x80 || (modrm & 0xc7) == 0x05 ||
                     ((modrm & 0xc0) == 0 && (sib & 0x07) == 5)) {
-                    int i = (modrm & 0xc7) == 5 ? 14 : (((modrm & 7) == 4) ? 24 : 13);
+                    int i = (modrm & 0xc7) == 5 ? 14 : disp32_stream(modrm, sib);
                     memcpy(&val, buffer[i], 4); buffer[i] += 4; val = bswap32(val);
                     memcpy(dest, &val, 4); dest += 4;
                     if (code == 0xff && modrm == 0x24 && val < jumpTable) jumpTable = val;

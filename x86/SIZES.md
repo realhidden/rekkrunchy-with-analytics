@@ -10,15 +10,15 @@ here.
 | `unfilter.asm` (`rekk_unfilter`) | x86 split-stream unfilter (reverses `-cx`) | **550** | 775 |
 
 A fully self-extracting filtered x86 payload runs both: 1583 + 775 = 2358 bytes
-of decoder `.text`. The unfilter grew 636→775 when disp32 was split per base
-register (the `.d32sel_fn` picker + 6 extra streams); that ~139 B of decoder
-buys ~0.5% off every compressed x86 payload (net positive after one payload). The unfilter grew 530→629 across the stream-layout rounds
-(per-opcode immediate + disp32/push split + big-endian imm32, 20→26 streams);
-that ~99 B of extra decoder buys ~2% off every compressed x86 payload. Round-3
-also *removed* the rel32 zigzag (absolute targets compress better), offsetting
-most of the routing cost. A stream-reorder experiment (round 5) was rejected:
-it would have saved ~132 B/payload but cost ~133 B of decoder (a net wash for
-single-payload self-extraction), so only the +3 B big-endian-imm32 part shipped.
+of decoder `.text`. The unfilter grew 550→775 B across the stream-layout
+rounds (per-opcode immediate split, disp32/push split, big-endian
+serialization, disp32-per-base-register split; 20→32 streams) — about +225 B
+of decoder that buys ≈−2.93% off every compressed x86 payload vs the upstream
+dispack layout, net positive past ~7 KB of compressed output. Two rounds also
+*removed* code: the rel32 zigzag (storing absolute targets compresses better)
+and, rejected, a stream-reorder that would have cost ~133 B of decoder for only
+~132 B/payload (a net wash for single-payload self-extraction), so only its
++3 B big-endian-imm32 part shipped.
 
 ## Golf log
 

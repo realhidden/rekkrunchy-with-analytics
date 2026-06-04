@@ -54,6 +54,48 @@ for non-instruction bytes), and validated byte-exact over 864 real `.text`
 sections. An optional `va` argument sets the assumed load address (default
 `0x401000`); any value roundtrips — it only affects jump-table detection.
 
+### What `-cx` changes vs upstream dispack (for the original authors)
+
+The filter started as a faithful port of ryg's `dis.cpp` / `depack2.asm`
+dispack (20 streams). This fork then re-tuned the **stream layout only** — same
+idea, same model, no codec change — guided by ~110 measured experiments
+(`research/NOTES.md`). The net effect on the corpus (cat/ls/gcc/nasm `.text`,
+real `-cx` path, every step roundtrip-verified):
+
+| layout | corpus total | vs upstream dispack |
+|--------|-------------:|--------------------:|
+| upstream dispack (20 streams) | 169607 B | — |
+| this fork (32 streams)        | 164645 B | **−4962 B / −2.93%** |
+
+The improvements, all "separate an operand field by structure the decoder
+already knows," are:
+
+* immediates split by opcode class (imm8/imm32: arith vs mov-reg vs mov-r/m vs
+  push — different value distributions);
+* `disp32` displacements split by base register (esp = stack args, ebp =
+  locals, GP = arrays/globals — the single biggest win);
+* jump/call targets stored **absolute** instead of zigzag-delta (also removed
+  decoder code);
+* **all** multi-byte streams stored big-endian (high byte = sign / image-base
+  prefix clusters).
+
+What did **not** help (proven dead ends, see `research/NOTES.md`): merging
+target streams, splitting spine fields (opcode/modrm), any within-stream value
+remap (delta/MTF/SoA/zigzag), permuting stream order, and finer imm32 splits.
+
+**Decoder-size cost.** These gains are paid for once, in the `-cx` unfilter
+stub (`x86/unfilter.asm`), not in the codec decoder:
+
+| stub | upstream-equivalent | this fork | Δ |
+|------|--------------------:|----------:|---:|
+| `unfilter.asm` (reverses `-cx`)        | ~550 B | 775 B | +225 B |
+| `depack.asm` (codec, unchanged in capability) | 1588 B | 1583 B | −5 B (golf only) |
+
+So a self-extracting filtered payload carries +225 B of decoder for ≈−3% on
+every payload — net positive after roughly the first ~7 KB of compressed
+output. The codec decoder itself is byte-exact with the original model; only
+the small split-stream picker grew. Sizes are tracked in `x86/SIZES.md`.
+
 x86 self-decompressor
 ---------------------
 

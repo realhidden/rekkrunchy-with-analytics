@@ -85,3 +85,31 @@ Tested, all REJECTED (made real `-cx` worse):
 Verdict: the 20-stream layout is empirically tuned and resists local changes.
 No stream add/remove/merge beat it. Real ratio gains would need a fundamentally
 different (e.g. instruction-semantic) model, out of scope for the size goal.
+
+## Round 2 — 16 experiments (transforms + routing), one WIN shipped
+
+Harness `research/streamexp.c` (length-preserving reversible transforms, real
+`-cx` measurement). All deltas vs baseline 169607 (sum over cat/ls/gcc/nasm).
+
+Transforms (byteplane / dword-delta / byte-delta / MTF on the dword & byte
+streams): 15 of 16 hurt; only byteplane-rel32 −276 (too marginal). Reconfirms
+the model already models within-stream structure.
+
+Routing (parallel subagents + local):
+- disp8 regrouping (esp/ebp vs rest; even/odd; pairs): +249..+716. ryg right.
+- 0x0f-suffix → own stream: +1064. 66-prefix split: needs decoder rework.
+- push/pop reg (0x50-5f) → side stream w/ placeholder: **+1887**. The register
+  is *inside* the opcode byte (the decode spine), so it can't move without a
+  per-instruction placeholder, and the model already predicts push/pop well in
+  opcode context. Idea sound, result negative.
+- **immediates split by opcode class: WIN.** Different instruction kinds emit
+  immediates with different distributions; own streams let the model adapt.
+  - imm8: #20 group-arith(0x80/0x83), #21 AL-forms(04/0c/24/2c/34/3c), #10 rest
+  - imm32: #22 mov-r/m(0xc7), #23 mov-reg(0xb8..bf), #12 rest
+  V1(coarse) −1163, V3(imm32 c7/b8 split) −1391, V4(imm8 3-way) −1211,
+  **V5 = V4+V3 combined −1441 (−0.85%)**. SHIPPED.
+
+V5 cost: 4 extra streams (20→24, +16 B header/file, already netted) and ~89 B
+in the asm unfilter (it now computes the per-opcode immediate stream index).
+Validated: filter fuzz 8057 ASan+UBSan, asm-unfilter differential 3046 cases,
+corpus 9/9 byte-exact.

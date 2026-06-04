@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define NBUFFERS 20
+#define NBUFFERS 24
 
 // instruction format flags (mirrors dis.cpp)
 #define fNM   0x0   // no modrm
@@ -67,6 +67,21 @@ static const uint8_t Tablefx[32] = {
 
 static inline uint32_t bswap32(uint32_t x) {
     return (x >> 24) | ((x >> 8) & 0xff00) | ((x << 8) & 0xff0000) | (x << 24);
+}
+
+// Immediates are routed to per-opcode-class streams: byte/dword immediates from
+// different instruction kinds have distinct value distributions, so giving each
+// its own stream lets the model adapt to each (≈0.85% on x86 code). `op` is the
+// post-prefix opcode (code1 on encode, code on decode); these must agree.
+static inline int imm8_stream(uint8_t op) {
+    if (op == 0x80 || op == 0x83) return 20;            // group-arith r/m, imm8
+    if (op==0x04||op==0x0c||op==0x24||op==0x2c||op==0x34||op==0x3c) return 21; // AL, imm8
+    return 10;
+}
+static inline int imm32_stream(uint8_t op) {
+    if (op == 0xc7) return 22;                          // mov r/m, imm32
+    if (op >= 0xb8 && op <= 0xbf) return 23;            // mov reg, imm32
+    return 12;
 }
 
 // ---- growable byte buffer ---------------------------------------------------
@@ -235,8 +250,11 @@ uint8_t *X86Filter(const uint8_t *input, uint32_t size, uint32_t va, uint32_t *o
             }
         } else {
             switch (flags & fTYPE) {
-            case fBI: buf_u8(&B[10], *instr++); break;
-            case fDI: if (!o16) { buf_put(&B[12], instr, 4); instr += 4; break; }
+            // imm8 split 3 ways by opcode (different value distributions):
+            //   #20 group-arith (0x80/0x83), #21 AL-immediate forms, #10 rest.
+            case fBI: buf_u8(&B[imm8_stream(code1)], *instr++); break;
+            // imm32 split 3 ways: #22 mov r/m (0xc7), #23 mov reg (0xb8..bf), #12 rest.
+            case fDI: if (!o16) { buf_put(&B[imm32_stream(code1)], instr, 4); instr += 4; break; }
                       /* fall through */
             case fWI: buf_put(&B[11], instr, 2); instr += 2; break;
             }
@@ -351,8 +369,8 @@ uint32_t X86Unfilter(const uint8_t *packed, uint8_t *dest, uint32_t va_unused) {
                 }
             } else {
                 switch (flags & fTYPE) {
-                case fBI: *dest++ = *buffer[10]++; break;
-                case fDI: if (!o16) { memcpy(dest, buffer[12], 4); dest += 4; buffer[12] += 4; break; }
+                case fBI: { int s=imm8_stream(code); *dest++ = *buffer[s]++; break; }
+                case fDI: if (!o16) { int s=imm32_stream(code); memcpy(dest, buffer[s], 4); dest += 4; buffer[s] += 4; break; }
                           /* fall through */
                 case fWI: memcpy(dest, buffer[11], 2); dest += 2; buffer[11] += 2; break;
                 }

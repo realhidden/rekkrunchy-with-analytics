@@ -7,10 +7,12 @@ here.
 | component | what it does | baseline | current |
 |-----------|--------------|---------:|--------:|
 | `depack.asm` (`rekk_depack`) | context-mixing range decoder (codec self-decompressor) | **1588** | 1583 |
-| `unfilter.asm` (`rekk_unfilter`) | x86 split-stream unfilter (reverses `-cx`) | **550** | 530 |
+| `unfilter.asm` (`rekk_unfilter`) | x86 split-stream unfilter (reverses `-cx`) | **550** | 619 |
 
-A fully self-extracting filtered x86 payload runs both: 1583 + 530 = 2113 bytes
-of decoder `.text`.
+A fully self-extracting filtered x86 payload runs both: 1583 + 619 = 2202 bytes
+of decoder `.text`. (The unfilter grew from 530→619 when the 24-stream
+immediate-split landed — it now computes the per-opcode immediate stream index;
+that costs ~89 B of decoder but saves ~0.85% of every compressed x86 payload.)
 
 ## Golf log
 

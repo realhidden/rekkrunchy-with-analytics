@@ -13,7 +13,7 @@
 bits 32
 global rekk_unfilter
 
-%define NBUFFERS 20
+%define NBUFFERS 24
 %define BUFFER dataArea.buffer
 
 struc dataArea
@@ -300,20 +300,22 @@ rekk_unfilter:
   jz        near .main
   dec       cl
   jnz       .dwow
-  ; fBI: 1-byte immediate from stream 10
-  xchg      esi, [ebp+BUFFER+10*4]
+  ; fBI: 1-byte immediate, stream chosen by opcode class (see imm8_stream in C)
+  call      .imm8sel                 ; ebx = stream index
+  xchg      esi, [ebp+BUFFER+ebx*4]
   movsb
-  xchg      esi, [ebp+BUFFER+10*4]
+  xchg      esi, [ebp+BUFFER+ebx*4]
   jmp       short .tomain
 .dwow:
   dec       cl
   jnz       .word
   test      dh, dh                   ; o16? then it's a word immediate
   jnz       .word
-  ; fDI: 4-byte immediate from stream 12
-  xchg      esi, [ebp+BUFFER+12*4]
+  ; fDI: 4-byte immediate, stream chosen by opcode class (see imm32_stream)
+  call      .imm32sel                ; ebx = stream index
+  xchg      esi, [ebp+BUFFER+ebx*4]
   movsd
-  xchg      esi, [ebp+BUFFER+12*4]
+  xchg      esi, [ebp+BUFFER+ebx*4]
   jmp       short .tomain
 .word:
   ; fWI / o16 fDI: 2-byte immediate from stream 11
@@ -321,6 +323,50 @@ rekk_unfilter:
   movsw
   xchg      esi, [ebp+BUFFER+11*4]
   jmp       short .tomain
+
+; imm8_stream: ebx = 20 if op in {80,83}; 21 if op in {04,0c,24,2c,34,3c}; else 10.
+; Explicit compares to match C imm8_stream() exactly (cold path; clarity > size).
+; op = current opcode (codebuf). Clobbers eax,edx,esi; preserves edi/ebp/ecx.
+.imm8sel:
+  mov       al, [ebp+dataArea.codebuf]
+  mov       ebx, 20
+  cmp       al, 0x80
+  je        .i8done
+  cmp       al, 0x83
+  je        .i8done
+  mov       bl, 21
+  push      esi
+  mov       esi, .alimm8             ; table of the 6 AL-imm8 opcodes, 0-terminated
+.i8scan:
+  mov       dl, [esi]
+  inc       esi
+  test      dl, dl
+  jz        .i8rest
+  cmp       dl, al
+  jne       .i8scan
+  pop       esi
+  ret                                ; matched -> ebx=21
+.i8rest:
+  pop       esi
+  mov       bl, 10
+.i8done:
+  ret
+.alimm8 db 0x04,0x0c,0x24,0x2c,0x34,0x3c,0
+
+; imm32_stream: ebx = 22 if op==c7; 23 if op in b8..bf; else 12.
+.imm32sel:
+  mov       al, [ebp+dataArea.codebuf]
+  mov       ebx, 22
+  cmp       al, 0xc7
+  je        .i32done
+  mov       bl, 23
+  mov       ah, al
+  and       ah, 0xf8
+  cmp       ah, 0xb8                  ; b8..bf
+  je        .i32done
+  mov       bl, 12
+.i32done:
+  ret
 
 section .data
 ; flag table: 2 nibbles per byte (code>>1 selects byte, code&1 selects nibble),

@@ -236,3 +236,32 @@ Filter total 165489 → 164645, **−844 (−0.51%)**; cumulative vs original 20
 plain. asm unfilter 636→775 B (per-base disp32 picker .d32sel_fn + 6 streams;
 needed a saved SIB byte, dataArea.sibbuf). Validated: fuzz 8057 ASan+UBSan,
 asm differential 3046, corpus 9/9 byte-exact.
+
+Refined rule after R8: split high-volume operand streams by already-decoded
+structural context, into COARSE semantic buckets with genuinely different value
+distributions. Do NOT merge streams just because the values share a type
+(call/jump/abs targets are all 32-bit addresses but different statistical
+objects). Pre-filter a candidate before coding asm: reject if total stream
+<~3 KB, any useful bucket <~512 B, or estimated gain <~150 B.
+
+## Round 9 — imm32 structural splits: vein dry (nothing shipped)
+
+Pre-filter volumes (4-file agg) guided this: imm32_c7 #22=12 KB, imm32_rest
+#12=8.5 KB, imm32_movreg #23=8.4 KB — all >3 KB so worth trying. Results vs
+164645:
+- imm32_rest by family (logic/arith/other): +127
+- mov-reg imm32 by dest register group: +68
+- mov-r/m imm32 by dest form (reg/stack/other): +17 (closest to neutral)
+- combo rest+movreg: +186
+- rel32 split jcc vs jmp: +376
+- SIB disp32 split by index-present: −35 (valid but noise; below ship threshold)
+
+Why imm32 splits fail where disp32 won: the sub-buckets are smaller (~2-3 KB
+each after splitting 8.5 KB three ways) AND less distributionally distinct.
+disp32 won because stack-frame layout (esp args / ebp locals) is highly regular
+and the buckets stayed large; imm32 constants lack that regularity, so model
+re-warmup across more small streams costs more than the separation gains.
+Confirms the pre-filter: bucket size + distribution-distinctness both matter,
+not just "different opcode family". Stream surgery now genuinely exhausted —
+the only remaining upside is model-side (frozen under the 5% / decoder-size
+rules).

@@ -22,4 +22,19 @@ uint8_t *X86Filter(const uint8_t *code, uint32_t size, uint32_t va, uint32_t *ou
 // equal the filter-time value. Returns the number of bytes written.
 uint32_t X86Unfilter(const uint8_t *packed, uint8_t *dest, uint32_t va);
 
+// Position-independent variant for the freestanding stub.
+//
+// The decoder reads three static lookup tables. In the relocatable stub blob
+// (extracted via `objcopy -j .text` and loaded at an arbitrary RVA) absolute
+// data addresses are invalid, so callers pass `tbl_delta` = (runtime base of the
+// stub blob) - (its link-time base). Each table address is then biased by this
+// delta, turning the access into register-relative addressing — no load-time
+// relocations needed. Host callers pass 0 (X86Unfilter is exactly this wrapper).
+//
+// For the stub build the tables must also live inside the extracted `.text`
+// blob: compile this TU with -DX86FILTER_STUB so they are placed in `.text$tbl`.
+#include <stddef.h>
+uint32_t X86UnfilterReloc(const uint8_t *packed, uint8_t *dest, uint32_t va,
+                          intptr_t tbl_delta);
+
 #endif

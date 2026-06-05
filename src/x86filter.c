@@ -6,6 +6,16 @@
 
 #define NBUFFERS 32
 
+// In the freestanding stub the decoder's lookup tables must travel inside the
+// `objcopy -j .text` blob, so force them into a `.text$tbl` subsection (merged
+// into `.text` by the PE linker, after the code). Host builds leave them in
+// `.rdata` as usual. See X86UnfilterReloc for how they are addressed at runtime.
+#ifdef X86FILTER_STUB
+#define TBL_SECTION __attribute__((section(".text$tbl")))
+#else
+#define TBL_SECTION
+#endif
+
 // instruction format flags (mirrors dis.cpp)
 #define fNM   0x0   // no modrm
 #define fAM   0x1   // no modrm, address mode
@@ -22,7 +32,7 @@
 #define fDR   0xc   // dword relative
 #define fERR  0x9   // error
 
-static const uint8_t Table0[256] = {
+static const uint8_t Table0[256] TBL_SECTION = {
   fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fNM|fBI,fNM|fDI,fNM|fNI,fNM|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fNM|fBI,fNM|fDI,fNM|fNI,fNM|fNI,
   fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fNM|fBI,fNM|fDI,fNM|fNI,fNM|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fNM|fBI,fNM|fDI,fNM|fNI,fNM|fNI,
   fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fNM|fBI,fNM|fDI,fNM|fNI,fNM|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fNM|fBI,fNM|fDI,fNM|fNI,fNM|fNI,
@@ -41,7 +51,7 @@ static const uint8_t Table0[256] = {
   fNM|fNI,fERR,   fNM|fNI,fNM|fNI,fNM|fNI,fNM|fNI,fMO|fNI,fMO|fNI,fNM|fNI,fNM|fNI,fNM|fNI,fNM|fNI,fNM|fNI,fNM|fNI,fMO|fNI,fMO|fNI,
 };
 
-static const uint8_t Table0f[256] = {
+static const uint8_t Table0f[256] TBL_SECTION = {
   fERR,fERR,fERR,fERR,fERR,fERR,fERR,fERR,fERR,fERR,fERR,fERR,fERR,fERR,fERR,fERR,
   fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fERR,fERR,fERR,fERR,fERR,fERR,fERR,fERR,
   fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fERR,fERR,fERR,fERR,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,
@@ -60,7 +70,7 @@ static const uint8_t Table0f[256] = {
   fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fERR,
 };
 
-static const uint8_t Tablefx[32] = {
+static const uint8_t Tablefx[32] TBL_SECTION = {
   fMR|fBI,fERR,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fDI,fERR,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,fMR|fNI,
   fMR|fNI,fMR|fNI,fERR,fERR,fERR,fERR,fERR,fERR,fMR|fNI,fMR|fNI,fMR|fNI,fERR,fMR|fNI,fERR,fMR|fNI,fERR,
 };
@@ -296,8 +306,14 @@ uint8_t *X86Filter(const uint8_t *input, uint32_t size, uint32_t va, uint32_t *o
 
 // ---- unfilter (decode) ------------------------------------------------------
 
-uint32_t X86Unfilter(const uint8_t *packed, uint8_t *dest, uint32_t va_unused) {
+uint32_t X86UnfilterReloc(const uint8_t *packed, uint8_t *dest, uint32_t va_unused,
+                          intptr_t tbl_delta) {
     (void)va_unused;
+    // Bias each table's link-time address by the blob's relocation delta. With
+    // delta==0 (host) these are the tables themselves; in the stub the result is
+    // the table's true runtime address, accessed register-relative (PIC-safe).
+    const uint8_t *T0  = Table0  + tbl_delta;   // see header: PIC table bias
+    const uint8_t *T0f = Table0f + tbl_delta;   // (decode never reads Tablefx)
     const uint8_t *p = packed;
     uint32_t va; memcpy(&va, p, 4); p += 4;
 
@@ -340,8 +356,8 @@ uint32_t X86Unfilter(const uint8_t *packed, uint8_t *dest, uint32_t va_unused) {
             *dest++ = code;
             if (code == 0x66) { o16 = 1; code = *buffer[0]++; *dest++ = code; }
             if (code == 0xc2 || code == 0xc3 || code == 0xcc) nextFunc = 1;
-            if (code == 0x0f) { code2 = *buffer[0]++; *dest++ = code2; flags = Table0f[code2]; }
-            else flags = Table0[code];
+            if (code == 0x0f) { code2 = *buffer[0]++; *dest++ = code2; flags = T0f[code2]; }
+            else flags = T0[code];
 
             if (flags & fMR) {
                 modrm = *buffer[0]++; *dest++ = modrm;
@@ -392,4 +408,9 @@ uint32_t X86Unfilter(const uint8_t *packed, uint8_t *dest, uint32_t va_unused) {
         memory += (uint32_t)(dest - start);
     }
     return (uint32_t)(dest - oldDest);
+}
+
+// Host/default entry: tables are at their link-time addresses (delta 0).
+uint32_t X86Unfilter(const uint8_t *packed, uint8_t *dest, uint32_t va) {
+    return X86UnfilterReloc(packed, dest, va, 0);
 }

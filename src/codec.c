@@ -2,14 +2,47 @@
 // Encoder ported from rangecoder.cpp, decoder from depacker.asm; the x86 inline
 // asm (sMulShift12, emms) is replaced with plain 64-bit arithmetic. Public domain.
 #include "codec.h"
-#include "model.h"
+
+#ifdef STUB_PAQ
+/* Freestanding stub: provide our own memset */
+static void *paq_memset(void *s, int c, unsigned long n) {
+    unsigned char *p = (unsigned char *)s;
+    while (n--) *p++ = (unsigned char)c;
+    return s;
+}
+#define memset paq_memset
+#else
 #include <stdlib.h>
 #include <string.h>
+#endif
 
 #define ZEROPAGE 8192
 
 static inline uint32_t mulshift12(uint32_t a, uint32_t b) {
-    return (uint32_t)(((uint64_t)a * b) >> 12);   // sMulShift12
+    return (uint32_t)(((uint64_t)a * b) >> 12);
+}
+
+// ---- decoder types and helper (used by both host Decompress and Decompress_buf) --
+
+typedef struct { const uint8_t *src; uint32_t range, csub; } Dec;
+
+static int dec_bit(Dec *d, uint32_t prob) {
+    uint32_t bound = mulshift12(d->range, prob);
+    uint32_t code = ((uint32_t)d->src[0] << 24) | ((uint32_t)d->src[1] << 16)
+                  | ((uint32_t)d->src[2] << 8)  | (uint32_t)d->src[3];
+    code -= d->csub;
+    int bit;
+    if (bound > code) {
+        d->range = bound; bit = 1;
+    } else {
+        d->csub += bound; d->range -= bound; bit = 0;
+    }
+    while ((d->range & 0xff000000u) == 0) {
+        d->src++;
+        d->range <<= 8;
+        d->csub <<= 8;
+    }
+    return bit;
 }
 
 // ---- encoder ----------------------------------------------------------------
@@ -43,8 +76,8 @@ static void enc_bit(Enc *e, uint32_t prob, int bit) {
 
 // Compress `in`/`inSize` to a freshly malloc'd buffer; *outSize gets the length.
 // Output layout: [4 bytes little-endian original size][range-coded stream].
+#ifndef STUB_PAQ  /* encoder + host decoder not needed in stub */
 uint8_t *Compress(const uint8_t *in, uint32_t inSize, uint32_t *outSize) {
-    // worst case: a few bytes per input byte; generous bound.
     uint8_t *out = malloc((size_t)inSize + inSize / 2 + 64);
     if (!out) return NULL;
     out[0] = inSize & 0xff; out[1] = (inSize >> 8) & 0xff;
@@ -79,31 +112,8 @@ uint8_t *Compress(const uint8_t *in, uint32_t inSize, uint32_t *outSize) {
     return out;
 }
 
-// ---- decoder ----------------------------------------------------------------
+// ---- host decoder (malloc'd output) -----------------------------------------
 
-typedef struct { const uint8_t *src; uint32_t range, csub; } Dec;
-
-static int dec_bit(Dec *d, uint32_t prob) {
-    uint32_t bound = mulshift12(d->range, prob);
-    uint32_t code = ((uint32_t)d->src[0] << 24) | ((uint32_t)d->src[1] << 16)
-                  | ((uint32_t)d->src[2] << 8)  | (uint32_t)d->src[3];
-    code -= d->csub;
-    int bit;
-    if (bound > code) {            // asm: cmp eax,ecx; ja .one (bound>code => 1)
-        d->range = bound; bit = 1;
-    } else {
-        d->csub += bound; d->range -= bound; bit = 0;
-    }
-    while ((d->range & 0xff000000u) == 0) {   // renorm while top byte zero
-        d->src++;
-        d->range <<= 8;
-        d->csub <<= 8;
-    }
-    return bit;
-}
-
-// Decompress a buffer produced by Compress(). Returns malloc'd output; *outSize
-// gets the original length read from the 4-byte header.
 uint8_t *Decompress(const uint8_t *in, uint32_t inSize, uint32_t *outSize) {
     (void)inSize;
     uint32_t n = (uint32_t)in[0] | ((uint32_t)in[1] << 8)
@@ -112,8 +122,7 @@ uint8_t *Decompress(const uint8_t *in, uint32_t inSize, uint32_t *outSize) {
     if (!out) return NULL;
 
     Dec d = { in + 4, ~0u, 0 };
-    // prime csub with the first 4 stream bytes (asm: code = 4 bytes big-endian)
-    d.csub = 0;  // csub starts 0; dec_bit reads code fresh each time and subtracts csub
+    d.csub = 0;
     uint32_t prob = 2048, zeroProb = 1;
     ModelInit(out);
 
@@ -142,4 +151,44 @@ uint8_t *Decompress(const uint8_t *in, uint32_t inSize, uint32_t *outSize) {
     }
     *outSize = n;
     return out;
+}
+#endif /* !STUB_PAQ */
+
+// ---- stub-safe decompress: caller supplies output buffer and PaqWorkspace ----
+
+int Decompress_buf(const uint8_t *in, uint32_t inSize,
+                   uint8_t *out, uint32_t outSize, PaqWorkspace *ws) {
+    (void)inSize;
+    uint32_t n = (uint32_t)in[0] | ((uint32_t)in[1] << 8)
+               | ((uint32_t)in[2] << 16) | ((uint32_t)in[3] << 24);
+    if (n != outSize) return -1;
+
+    Dec d = { in + 4, ~0u, 0 };
+    uint32_t prob = 2048, zeroProb = 1;
+    ModelInitBuf(ws, out);
+
+    uint8_t *p = out;
+    uint32_t pos = 0;
+    while (pos < n) {
+        if ((pos & (ZEROPAGE - 1)) == 0) {
+            int isZero = dec_bit(&d, zeroProb);
+            zeroProb = (zeroProb + (isZero ? 4096 : 1)) >> 1;
+            if (isZero) {
+                memset(p, 0, ZEROPAGE);
+                p += ZEROPAGE; pos += ZEROPAGE;
+                ModelSetPtrBuf(ws, p);
+                continue;
+            }
+        }
+        int byte = 0;
+        for (int i = 0; i < 8; i++) {
+            int bit = dec_bit(&d, prob);
+            byte = (byte << 1) | bit;
+            if (i == 7) *p++ = (uint8_t)byte;
+            ModelSetPtrBuf(ws, p);
+            prob = ModelUpdateBuf(ws, bit);
+        }
+        pos++;
+    }
+    return 0;
 }

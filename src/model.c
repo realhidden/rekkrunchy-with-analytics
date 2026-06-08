@@ -35,7 +35,10 @@ extern const uint32_t RUNTABLE[256];
 extern const uint8_t  STATECODE[512];
 extern const uint8_t  STATENEXT[512];
 extern const uint32_t STATEMAP_INIT[256];
+// Host uses static STRETCH from tables.c; stub generates at runtime.
+#ifndef STUB_PAQ
 extern const uint32_t STRETCH[4096];
+#endif
 
 // ---- internal helpers (all take explicit workspace pointer) ----
 
@@ -91,6 +94,24 @@ static const uint8_t masks[PAQ_NMODEL] =
 static const uint8_t bitm[PAQ_NMODEL] =
     {0xff,0xff,0xff,0xe0,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
 
+// ---- STRETCH table runtime init (stub only) ----
+// STRETCH is the inverse of squash: for each stretch value s in [-2047,2048],
+// squash(s) gives a probability p; fill stretch[p_prev..p) with s.
+// This reproduces the table from model_asm.asm exactly.
+#ifdef STUB_PAQ
+static void init_stretch_table(PaqWorkspace *w) {
+    int32_t prev = -1;
+    uint32_t idx = 0;
+    for (int32_t s = -2047; s <= 2048; s++) {
+        int32_t p = squash(s);
+        int32_t count = p - prev;
+        prev = p;
+        while (count-- > 0)
+            w->stretch[idx++] = (uint32_t)s;
+    }
+}
+#endif
+
 // ---- workspace-pointer API (core implementation) ----
 
 void ModelInitBuf(PaqWorkspace *w, const uint8_t *bufStart) {
@@ -100,6 +121,11 @@ void ModelInitBuf(PaqWorkspace *w, const uint8_t *bufStart) {
     w->c0   = 1;
     w->bpos = 8;
     w->pr[0] = w->pr[1] = w->pr[2] = w->pr[3] = 2048;
+#ifdef STUB_PAQ
+    init_stretch_table(w);
+#else
+    memcpy(w->stretch, STRETCH, sizeof(w->stretch));
+#endif
     memcpy(w->stateMap, STATEMAP_INIT, sizeof(w->stateMap));
     for (int m = 0; m < PAQ_NMODEL; m++) {
         w->cm[m].cpr = contextHash(w, 1);
@@ -236,7 +262,7 @@ uint32_t ModelUpdateBuf(PaqWorkspace *w, int bit) {
         uint32_t newst = cm->cps[0];
         cm->st = newst;
         uint32_t sm = w->stateMap[newst] >> 4;
-        tx[ti++] = (int16_t)((int32_t)STRETCH[sm] >> 2);
+        tx[ti++] = (int16_t)((int32_t)w->stretch[sm] >> 2);
 
         uint32_t al = (sm >> 4) & 0xff;
         uint32_t nl = (~al) & 0xff;
@@ -290,7 +316,7 @@ mix:;
         uint32_t pv = prevByte(w);
         uint32_t ix = ((pv << 4) + pv + w->c0) & (PAQ_APMSIZE - 1);
         ix = ix * 33;
-        int32_t st2 = (int32_t)STRETCH[p];
+        int32_t st2 = (int32_t)w->stretch[p];
         ix += (uint32_t)(st2 >> 7);
         w->APMi = ix;
         uint32_t frac = (uint32_t)st2 & 127;

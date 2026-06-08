@@ -37,6 +37,7 @@ typedef struct {
     int16_t  tx2[4];
     int16_t  wx2[8];
     uint32_t stateMap[256];
+    uint32_t stretch[4096];  /* inverse of squash; runtime-generated in stub */
     int32_t  APM[PAQ_APMSIZE * 33];
 } PaqWorkspace;
 

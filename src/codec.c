@@ -112,6 +112,51 @@ uint8_t *Compress(const uint8_t *in, uint32_t inSize, uint32_t *outSize) {
     return out;
 }
 
+// Thread-safe variant: caller supplies PaqWorkspace; no global state touched.
+// bytes_done: if non-NULL, atomically incremented by ZEROPAGE after each 8 KB chunk.
+#include <stdatomic.h>
+uint8_t *CompressBuf(const uint8_t *in, uint32_t inSize, uint32_t *outSize,
+                     PaqWorkspace *w, atomic_size_t *bytes_done) {
+    uint8_t *out = malloc((size_t)inSize + inSize / 2 + 64);
+    if (!out) return NULL;
+    out[0] = inSize & 0xff; out[1] = (inSize >> 8) & 0xff;
+    out[2] = (inSize >> 16) & 0xff; out[3] = (inSize >> 24) & 0xff;
+
+    Enc e = { out + 4, 0, ~0u, 0, 0, 1 };
+    uint32_t prob = 2048, zeroProb = 1;
+    ModelInitBuf(w, in);
+
+    const uint8_t *p = in;
+    for (uint32_t pos = 0; pos < inSize; pos++) {
+        if ((pos & (ZEROPAGE - 1)) == 0) {
+            if (bytes_done && pos > 0)
+                atomic_fetch_add(bytes_done, ZEROPAGE);
+            int isZero = (inSize - pos) > ZEROPAGE;
+            if (isZero)
+                for (int i = 0; i < ZEROPAGE; i++)
+                    if (p[i]) { isZero = 0; break; }
+            enc_bit(&e, zeroProb, isZero);
+            zeroProb = (zeroProb + (isZero ? 4096 : 1)) >> 1;
+            if (isZero) {
+                p += ZEROPAGE; pos += ZEROPAGE - 1;
+                if (bytes_done) atomic_fetch_add(bytes_done, ZEROPAGE);
+                continue;
+            }
+        }
+        for (int i = 0; i < 8; i++) {
+            int bit = (*p >> (7 - i)) & 1;
+            enc_bit(&e, prob, bit);
+            if (i == 7) p++;
+            ModelSetPtrBuf(w, p);
+            prob = ModelUpdateBuf(w, bit);
+        }
+    }
+    for (int i = 0; i < 5; i++) enc_shiftlow(&e);
+
+    *outSize = (uint32_t)(e.out - out);
+    return out;
+}
+
 // ---- host decoder (malloc'd output) -----------------------------------------
 
 uint8_t *Decompress(const uint8_t *in, uint32_t inSize, uint32_t *outSize) {

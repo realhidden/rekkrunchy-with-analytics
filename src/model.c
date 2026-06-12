@@ -135,10 +135,35 @@ void ModelInitBuf(PaqWorkspace *w, const uint8_t *bufStart) {
         w->APM[j + 16] = squash(j << 7) << 4;
     for (uint32_t c = 1; c < PAQ_APMSIZE; c++)
         memcpy(&w->APM[c * 33], &w->APM[0], 33 * sizeof(int32_t));
+    for (int j = -16; j <= 16; j++)
+        w->APM2[j + 16] = squash(j << 7) << 4;
+    for (uint32_t c = 1; c < PAQ_APMSIZE; c++)
+        memcpy(&w->APM2[c * 33], &w->APM2[0], 33 * sizeof(int32_t));
 }
 
 void ModelSetPtrBuf(PaqWorkspace *w, const uint8_t *p) {
     w->bufPtr = p;
+}
+
+/* One SSE/APM refinement: adaptively updates the cell for the previous bit,
+   then interpolates a refined probability for context `ctx` and input prob `p`.
+   Shared by both chained APM stages so the 2nd stage adds no duplicated code. */
+static int32_t apm_refine(PaqWorkspace *w, int32_t *APMtab, uint32_t *idx,
+                          uint32_t ctx, int32_t p) {
+    uint32_t g = (uint32_t)(-(int32_t)w->bit) & 0x100fe;
+    int32_t *api = &APMtab[16 + *idx];
+    api[0] += (int32_t)(g - api[0]) >> 8;
+    api[1] += (int32_t)(g - api[1]) >> 8;
+
+    uint32_t ix = (ctx & (PAQ_APMSIZE - 1)) * 33;
+    int32_t st2 = (int32_t)w->stretch[p];
+    ix += (uint32_t)(st2 >> 7);
+    *idx = ix;
+    uint32_t frac = (uint32_t)st2 & 127;
+    int32_t *ap = &APMtab[16 + ix];
+    int32_t a0 = ap[0];
+    int32_t a1 = ap[1];
+    return ((a0 << 7) + (a1 - a0) * (int32_t)frac) >> 11;
 }
 
 uint32_t ModelUpdateBuf(PaqWorkspace *w, int bit) {
@@ -305,26 +330,12 @@ mix:;
         w->pr[3] = squash(acc2);
     }
 
-    // ---- APM stage ----
-    int32_t p = w->pr[3];
-    {
-        uint32_t g = (uint32_t)(-(int32_t)w->bit) & 0x100fe;
-        int32_t *api = &w->APM[16 + w->APMi];
-        api[0] += (int32_t)(g - api[0]) >> 8;
-        api[1] += (int32_t)(g - api[1]) >> 8;
-
-        uint32_t pv = prevByte(w);
-        uint32_t ix = ((pv << 4) + pv + w->c0) & (PAQ_APMSIZE - 1);
-        ix = ix * 33;
-        int32_t st2 = (int32_t)w->stretch[p];
-        ix += (uint32_t)(st2 >> 7);
-        w->APMi = ix;
-        uint32_t frac = (uint32_t)st2 & 127;
-        int32_t *ap = &w->APM[16 + ix];
-        int32_t a0 = ap[0];
-        int32_t a1 = ap[1];
-        p = ((a0 << 7) + (a1 - a0) * (int32_t)frac) >> 11;
-    }
+    // ---- two chained SSE/APM stages (shared helper, no duplicated code) ----
+    uint32_t pv  = prevByte(w);
+    uint32_t pv2 = (w->bufPtr - 1 > w->bufStart) ? (uint32_t)w->bufPtr[-2] : 0;
+    int32_t p1 = apm_refine(w, w->APM,  &w->APMi,  (pv << 4) + pv + w->c0, w->pr[3]);
+    int32_t p2 = apm_refine(w, w->APM2, &w->APM2i, (pv2 << 5) ^ pv ^ w->c0, p1);
+    int32_t p  = (p1 + p2 + 1) >> 1;
 
     if ((((uint32_t)p >> 8) & 0xff) < 8) p++;
     return (uint32_t)p;

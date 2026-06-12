@@ -29,6 +29,7 @@ typedef struct {
     uint32_t ctx[3];
     int32_t  bit, bitscaled;
     uint32_t APMi;
+    uint32_t APM2i;
     PaqContextModel cm[PAQ_NMODEL];
     const uint8_t *match[PAQ_MEM / 16];
     uint8_t  modelMem[PAQ_MEM];
@@ -39,6 +40,7 @@ typedef struct {
     uint32_t stateMap[256];
     uint32_t stretch[4096];  /* inverse of squash; runtime-generated in stub */
     int32_t  APM[PAQ_APMSIZE * 33];
+    int32_t  APM2[PAQ_APMSIZE * 33];
 } PaqWorkspace;
 
 // Existing host API — uses an internal static PaqWorkspace.

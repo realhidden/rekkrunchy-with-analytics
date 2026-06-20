@@ -9,6 +9,21 @@
 // arithmetic and 16-bit saturation of the MMX code.
 #include "model.h"
 
+/* Force the static const lookup tables into .text so they survive objcopy
+   -j .text when this file is built as the flat codec_paq.bin layer. Without
+   this, gcc places them in .rdata, which is dropped from the layer blob, so
+   squash()/init_stretch_table()/the context-hash scan read garbage at runtime
+   -> wrong stretch table -> wrong predictions -> ctx[] cascade -> 0xC0000005
+   (the Win7 --layers paq crash). Host build is unaffected (.rdata is readable
+   there), so the attribute is mingw-only (mach-o rejects section(".text")). */
+#ifndef PAQ_TBL
+#if defined(__MINGW32__) || defined(__MINGW64__)
+#define PAQ_TBL __attribute__((section(".text")))
+#else
+#define PAQ_TBL
+#endif
+#endif
+
 #ifdef STUB_PAQ
 /* Freestanding stub: provide our own memset/memcpy */
 static void *paq_memset(void *s, int c, unsigned long n) {
@@ -53,7 +68,7 @@ static inline int16_t sat16(int32_t v) {
     return (int16_t)clamp32(v, -32768, 32767);
 }
 
-static const int16_t squashTab[33] = {
+PAQ_TBL static const int16_t squashTab[33] = {
     1,2,4,6,10,17,27,45,74,120,194,311,488,747,1102,1546,2048,2550,2994,3349,
     3608,3785,3902,3976,4022,4051,4069,4079,4086,4090,4092,4094,4095
 };
@@ -89,9 +104,9 @@ static void train(int32_t err, const int16_t *t, int16_t *ww, int n) {
     }
 }
 
-static const uint8_t masks[PAQ_NMODEL] =
+PAQ_TBL static const uint8_t masks[PAQ_NMODEL] =
     {0x1f,0x27,0x88,0x07,0x0a,0x09,0x05,0x03,0x04,0x02,0x01};
-static const uint8_t bitm[PAQ_NMODEL] =
+PAQ_TBL static const uint8_t bitm[PAQ_NMODEL] =
     {0xff,0xff,0xff,0xe0,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
 
 // ---- STRETCH table runtime init (stub only) ----
